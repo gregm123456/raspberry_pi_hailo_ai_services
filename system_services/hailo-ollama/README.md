@@ -50,10 +50,26 @@ sudo ./install.sh
 
 ## Basic Usage
 
+Query available models:
+
 ```bash
 curl http://localhost:11434/api/version
 curl http://localhost:11434/api/tags
 ```
+
+Run inference (OpenAI-compatible):
+
+```bash
+curl -X POST http://localhost:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen2:1.5b",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": false
+  }'
+```
+
+For all available endpoints, see [API_SPEC.md](API_SPEC.md).
 
 Check service status:
 
