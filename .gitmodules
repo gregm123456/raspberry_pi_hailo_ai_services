@@ -1,0 +1,12 @@
+[submodule "hailo-apps"]
+	path = hailo-apps
+	url = https://github.com/hailo-ai/hailo-apps
+[submodule "hailo_model_zoo_genai"]
+	path = hailo_model_zoo_genai
+	url = https://github.com/hailo-ai/hailo_model_zoo_genai
+[submodule "hailo-rpi5-examples"]
+	path = hailo-rpi5-examples
+	url = https://github.com/hailo-ai/hailo-rpi5-examples
+[submodule "hailort"]
+	path = hailort
+	url = https://github.com/hailo-ai/hailort
