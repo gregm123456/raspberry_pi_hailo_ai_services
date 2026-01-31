@@ -84,7 +84,12 @@ preflight_hailo() {
 
 preflight_hailo_ollama() {
     if ! command -v hailo-ollama >/dev/null 2>&1; then
-        error "hailo-ollama not found in PATH. Install the Developer Zone Debian package first."
+        error "hailo-ollama not found in PATH."
+        error ""
+        error "Install the Developer Zone Debian package:"
+        error "  https://www.hailo.ai/developer-zone/"
+        error ""
+        error "After installation, verify with: hailortcli fw-control identify"
         exit 1
     fi
 }

@@ -6,8 +6,9 @@ Deploys the upstream `hailo-ollama` server as a systemd service on Raspberry Pi 
 
 - Hailo-10H driver installed: `sudo apt install dkms hailo-h10-all`
 - Verify device: `hailortcli fw-control identify`
-- `hailo-ollama` binary installed (Developer Zone Debian package)
 - Python YAML support: `sudo apt install python3-yaml`
+
+The installer will check for the `hailo-ollama` binary (from Developer Zone Debian package) and provide installation guidance if missing.
 
 ## Installation
 
