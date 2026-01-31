@@ -128,6 +128,9 @@ create_state_directories() {
     log "Creating model directory structure"
     mkdir -p /var/lib/hailo-ollama/models/manifests
     mkdir -p /var/lib/hailo-ollama/models/blobs
+    # Ensure manifest directory is clean; systemd will bind-mount package manifests
+    rm -rf /var/lib/hailo-ollama/models/manifests/*
+
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/lib/hailo-ollama
     chmod -R u+rwX,g+rX,o-rwx /var/lib/hailo-ollama
 }

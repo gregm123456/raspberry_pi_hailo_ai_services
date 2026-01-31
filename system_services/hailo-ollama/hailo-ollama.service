@@ -15,11 +15,16 @@ WorkingDirectory=/var/lib/hailo-ollama
 # Ensure writable state dir exists and is owned correctly
 StateDirectory=hailo-ollama
 
+# Bind package manifests into the writable data directory
+BindReadOnlyPaths=/usr/share/hailo-ollama/models/manifests:/var/lib/hailo-ollama/models/manifests
+
 # XDG wiring: force config + data locations
 Environment=XDG_CONFIG_HOME=/etc/xdg
 Environment=XDG_CONFIG_DIRS=/etc/xdg
+# XDG_DATA_HOME: writable location for downloaded model blobs
 Environment=XDG_DATA_HOME=/var/lib
-Environment=XDG_DATA_DIRS=/var/lib
+# XDG_DATA_DIRS: must include /usr/share for package-installed manifests
+Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
 
 # HailoRT logging to journald instead of local files
 Environment=HAILO_PRINT_TO_SYSLOG=1
