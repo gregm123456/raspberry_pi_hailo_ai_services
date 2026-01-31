@@ -1,0 +1,33 @@
+[Unit]
+Description=Hailo Ollama (Ollama-compatible API on Hailo-10H)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=hailo-ollama
+Group=hailo-ollama
+
+# Ensure writable state dir exists and is owned correctly
+StateDirectory=hailo-ollama
+
+# XDG wiring: force config + data locations
+Environment=XDG_CONFIG_HOME=/etc/xdg
+Environment=XDG_CONFIG_DIRS=/etc/xdg
+Environment=XDG_DATA_HOME=/var/lib
+Environment=XDG_DATA_DIRS=/var/lib
+
+ExecStart=/usr/bin/env hailo-ollama
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Optional Pi guardrails (tune as needed)
+MemoryMax=4G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target
