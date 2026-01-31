@@ -427,6 +427,220 @@ curl http://localhost:8082/api/health   # Whisper
 curl http://localhost:8080/api/health   # YOLO
 ```
 
+## Service Integration Patterns & Debugging
+
+### Understanding Systemd vs Manual Execution
+
+**Key principle:** Services running under systemd have constrained environments that differ from manual execution. What works when you run `application` may fail as a service.
+
+**Common differences:**
+- **Environment variables:** Limited to what's explicitly set in unit file
+- **Working directory:** Set by `WorkingDirectory=`, not your shell's `$PWD`
+- **User context:** Runs as service user (e.g., `hailo-ollama`), not root or your user
+- **PATH:** May not include `/usr/local/bin` or other custom paths
+- **Home directory:** Service user's home (`/var/lib/service-name`), not `/root` or `/home/you`
+- **Resource discovery:** Applications may search different paths under different users
+
+**Debugging strategy:**
+
+1. **Test as the service user first:**
+   ```bash
+   # Become the service user and test manually
+   sudo -u hailo-ollama bash
+   cd /var/lib/hailo-ollama
+   /usr/bin/hailo-ollama  # Run exactly as service will
+   ```
+
+2. **Match the service environment:**
+   ```bash
+   # Export the exact environment from unit file
+   sudo -u hailo-ollama \
+     XDG_DATA_HOME=/var/lib \
+     XDG_CONFIG_HOME=/etc/xdg \
+     bash -c '/usr/bin/hailo-ollama'
+   ```
+
+3. **Inspect the running service environment:**
+   ```bash
+   # Check environment variables
+   sudo cat /proc/$(pgrep service-name)/environ | tr '\0' '\n'
+   
+   # Check mount points (for bind mounts)
+   sudo cat /proc/$(pgrep service-name)/mountinfo | grep service-name
+   
+   # Check working directory
+   ls -la /proc/$(pgrep service-name)/cwd
+   ```
+
+### Resource Discovery & Package Integration
+
+**Problem pattern:** Application works manually but service can't find resources (models, configs, manifests).
+
+**Discovery mechanisms to investigate:**
+
+1. **Hardcoded paths:**
+   ```bash
+   # Search binary for path strings
+   strings /usr/bin/application | grep -E "(usr|var|etc|share)"
+   ```
+
+2. **Environment-based paths (XDG, HOME, etc.):**
+   ```bash
+   # Trace file access during startup
+   strace -e openat,access /usr/bin/application 2>&1 | grep -E "(model|config|manifest)"
+   ```
+
+3. **Config file references:**
+   ```bash
+   # Check installed config files
+   dpkg -L package-name | grep -E "\.(json|yaml|conf|ini)$"
+   ```
+
+**Common solutions:**
+
+**Option 1: Configuration (preferred when supported):**
+```ini
+# systemd unit
+Environment=MODEL_PATH=/usr/share/hailo-models
+```
+
+**Option 2: Bind mount (when app searches fixed user paths):**
+```ini
+# Mount package resources into service's writable state
+BindReadOnlyPaths=/usr/share/package-resources:/var/lib/service-name/resources
+```
+
+Why bind mounts over symlinks:
+- **Symlinks fail when scanners check `d_type`:** Directory scanners using `readdir()` see `DT_LNK` for symlinks, `DT_DIR` for real directories. Many apps skip non-directory entries.
+- **Bind mounts are transparent:** Appear as real directories to all applications
+- **Per-service scope:** Mount exists only in service's namespace, no system-wide changes
+- **Package update safe:** Contents automatically reflect package upgrades
+
+**Option 3: Copy resources (last resort):**
+```bash
+# In installer: copy package resources to service directory
+cp -r /usr/share/package-resources/* /var/lib/service-name/resources/
+chown -R service-user:service-user /var/lib/service-name/resources/
+```
+
+Downsides: Duplicates data, stale after package upgrades, requires re-copy logic.
+
+### Debugging with strace
+
+**When to use:** Application fails in service but works manually; need to see what it's actually accessing.
+
+```bash
+# Trace file operations during startup
+sudo systemctl stop service-name
+strace -f -e openat,access,stat /usr/bin/application 2>&1 | tee /tmp/strace.log
+
+# Common patterns to look for:
+grep -E "ENOENT|EACCES" /tmp/strace.log  # File not found or permission denied
+grep "manifest" /tmp/strace.log           # Resource discovery paths
+grep "\.so" /tmp/strace.log               # Library loading issues
+```
+
+**Attach to running service:**
+```bash
+# Trace a running process
+pid=$(pgrep service-name)
+sudo strace -p $pid -e openat -f 2>&1 | grep -i resource
+```
+
+### Testing Service Integration
+
+**Progressive verification checklist:**
+
+1. **Package resources installed:**
+   ```bash
+   dpkg -L package-name | grep -E "models|manifests|configs"
+   ls -la /usr/share/package-name/
+   ```
+
+2. **Service user can read resources:**
+   ```bash
+   sudo -u service-user ls -la /usr/share/package-resources/
+   sudo -u service-user cat /usr/share/package-resources/model.hef
+   ```
+
+3. **Manual execution as service user:**
+   ```bash
+   sudo systemctl stop service-name
+   sudo -u service-user bash -c 'cd /var/lib/service-name && /usr/bin/application'
+   # Verify application finds resources
+   ```
+
+4. **Service execution:**
+   ```bash
+   sudo systemctl start service-name
+   sudo systemctl status service-name
+   sudo journalctl -u service-name -n 50
+   ```
+
+5. **API validation:**
+   ```bash
+   curl http://localhost:PORT/api/health
+   curl http://localhost:PORT/api/list-resources
+   ```
+
+### Common Integration Issues
+
+**Issue: "Resources not found" in service but work manually**
+
+**Cause:** Application searches paths relative to `$HOME`, `$XDG_DATA_HOME`, or current directory.
+
+**Debug:**
+```bash
+# Compare environments
+env | grep -E "HOME|XDG|PATH" > /tmp/manual.env
+sudo cat /proc/$(pgrep service-name)/environ | tr '\0' '\n' | grep -E "HOME|XDG|PATH" > /tmp/service.env
+diff /tmp/manual.env /tmp/service.env
+```
+
+**Solutions:**
+- Set missing environment variables in unit file
+- Use `BindReadOnlyPaths` to mount resources into expected location
+- Provide config file with explicit paths
+
+**Issue: "Permission denied" accessing `/dev/hailo0`**
+
+**Cause:** Service user not in Hailo device group.
+
+**Fix:**
+```bash
+stat -c '%G' /dev/hailo0  # Check device group (usually 'hailo' or 'root')
+sudo usermod -aG hailo service-user
+sudo systemctl restart service-name
+```
+
+**Issue: Models load on first run but not after package upgrade**
+
+**Cause:** Resources copied during install rather than referenced from package location.
+
+**Fix:** Use bind mounts or config paths pointing to `/usr/share` instead of copying.
+
+### Case Study: XDG Base Directory Spec
+
+**Scenario:** Application uses XDG Base Directory specification but only searches `XDG_DATA_HOME`, not `XDG_DATA_DIRS`.
+
+**Symptoms:**
+- Manual execution finds resources in `/usr/share/application/`
+- Service execution fails to find same resources
+- `XDG_DATA_DIRS` includes `/usr/share` but doesn't help
+
+**Root cause:** Application follows XDG spec incompletely—only checks user data location, not system data directories.
+
+**Solution:** Use `BindReadOnlyPaths`:
+```ini
+# systemd unit
+Environment=XDG_DATA_HOME=/var/lib
+BindReadOnlyPaths=/usr/share/application/resources:/var/lib/application/resources
+```
+
+**Lesson:** Don't assume applications follow specs completely. Verify actual behavior with strace.
+
+See [hailo-ollama MANIFEST_DISCOVERY.md](../../system_services/hailo-ollama/MANIFEST_DISCOVERY.md) for detailed case study.
+
 ## Monitoring & Debugging
 
 ### systemd Service Logs
