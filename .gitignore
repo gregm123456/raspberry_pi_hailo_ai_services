@@ -1,0 +1,95 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-workspace
+.project
+.classpath
+.c9/
+*.code-workspace
+
+# Build directories
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.cmake
+
+# Test and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Node modules (if any)
+node_modules/
+npm-debug.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+.directory
+.Trash-*
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# Local configuration
+config.local.yaml
+*.local.json
+
+# Logs
+*.log
+logs/
+journalctl-*.txt
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Large files
+*.so
+*.o
+*.a
+*.lib
+*.dll
+*.dylib
+
+# Model cache/downloads (keep directories but ignore large files)
+models/cache/
+models/downloads/
+*.hef
+!models/manifests/
+
+# Build artifacts
+*.deb
+*.rpm
+
+# HailRT specific
+hailort_python*
