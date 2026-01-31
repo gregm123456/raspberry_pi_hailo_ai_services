@@ -1,0 +1,66 @@
+server:
+  host: 0.0.0.0
+  port: 5001
+  debug: false
+
+scrfd:
+  # Model selection: scrfd_2.5g_bnkps (lightweight) or scrfd_10g_bnkps (high accuracy)
+  model: scrfd_2.5g_bnkps
+  
+  # Input image size (640x640 standard for SCRFD)
+  input_size: 640
+  
+  # Device index (typically 0 for single device)
+  device: 0
+  
+  # Detection thresholds
+  conf_threshold: 0.5  # Minimum confidence for detections
+  nms_threshold: 0.4   # NMS IoU threshold
+  
+  # Inference parameters
+  batch_size: 1
+  device_timeout_ms: 5000
+
+# Face detection options
+detection:
+  # Return facial landmarks (5 points)
+  return_landmarks: true
+  
+  # Scale factor for multi-scale detection
+  scale_factor: 1.0
+  
+  # Maximum number of faces to detect
+  max_faces: 10
+
+# Face alignment options (for /v1/align endpoint)
+alignment:
+  # Output size for aligned faces (112x112 standard for ArcFace)
+  output_size: 112
+  
+  # Padding around face crop
+  padding: 0.0
+
+# Performance tuning
+performance:
+  # Number of worker threads for concurrent requests
+  worker_threads: 2
+  
+  # Maximum queue size for concurrent requests
+  max_queue_size: 10
+  
+  # Request timeout (seconds)
+  request_timeout: 30
+  
+  # Optional model warmup on startup (disable for faster startup)
+  warmup_enabled: false
+  warmup_iterations: 3
+
+# Resource limits (advanced; tuned by installer)
+resource_limits:
+  memory_max: "2G"
+  cpu_quota: "80%"
+
+# Logging
+logging:
+  level: INFO
+  format: json

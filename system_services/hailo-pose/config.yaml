@@ -1,0 +1,37 @@
+server:
+  host: 0.0.0.0
+  port: 11436
+
+model:
+  # Model name and variant
+  name: "yolov8s-pose"
+  # keep_alive controls model lifecycle:
+  # -1 = persistent (keep loaded indefinitely)
+  # 0 = unload immediately after request
+  # N = unload after N seconds (e.g., 300 = 5 minutes)
+  # Default if omitted: 300
+  keep_alive: -1
+
+inference:
+  # Default inference parameters
+  confidence_threshold: 0.5
+  iou_threshold: 0.45
+  max_detections: 10
+  # Input size (width, height) - must match model training size
+  input_size: [640, 640]
+
+pose:
+  # COCO keypoint format (17 keypoints)
+  # Order: nose, left_eye, right_eye, left_ear, right_ear,
+  #        left_shoulder, right_shoulder, left_elbow, right_elbow,
+  #        left_wrist, right_wrist, left_hip, right_hip,
+  #        left_knee, right_knee, left_ankle, right_ankle
+  keypoint_threshold: 0.3
+  skeleton_connections: true  # Return skeleton connections for visualization
+
+# Optional resource limits (tunable)
+resource_limits:
+  # systemd unit memory cap
+  memory_max: "2G"
+  # systemd unit CPU quota (80% = can use 4 out of 5 CPU cores on Pi 5)
+  cpu_quota: "80%"

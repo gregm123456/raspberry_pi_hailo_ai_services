@@ -1,0 +1,42 @@
+server:
+  host: 0.0.0.0
+  port: 5002
+  debug: false
+
+piper:
+  # Path to Piper TTS ONNX model
+  # Default: en_US-lessac-medium (clear, natural voice)
+  # Download from: https://github.com/rhasspy/piper/releases
+  model_path: /var/lib/hailo-piper/models/en_US-lessac-medium.onnx
+  
+  # Synthesis parameters
+  volume: 1.0
+  length_scale: 1.0  # Speech speed (1.0 = normal, <1.0 = faster, >1.0 = slower)
+  noise_scale: 0.667  # Variability in speech
+  noise_w_scale: 0.8  # Variability in duration
+  normalize_audio: true
+
+# Synthesis configuration
+synthesis:
+  sample_rate: 22050  # Output sample rate (Hz)
+  format: wav  # Output format (wav supported)
+  max_text_length: 5000  # Maximum characters per request
+
+# Performance tuning
+performance:
+  # Number of worker threads for concurrent requests
+  worker_threads: 2
+  # Request timeout (seconds)  
+  request_timeout: 30
+  # Optional audio cache for repeated phrases
+  cache_enabled: false
+
+# Resource limits (advanced; tuned by installer)
+resource_limits:
+  memory_max: "2G"
+  cpu_quota: "80%"
+
+# Logging
+logging:
+  level: INFO
+  format: json

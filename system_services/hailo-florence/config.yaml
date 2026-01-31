@@ -1,0 +1,54 @@
+# hailo-florence Service Configuration
+
+service:
+  host: "0.0.0.0"
+  port: 8082
+  workers: 1
+  log_level: "INFO"
+
+model:
+  name: "florence-2"
+  base_path: "/opt/hailo/florence/models"
+  
+  # Model files
+  vision_encoder: "florence2_davit.onnx"
+  text_encoder: "florence2_encoder.hef"
+  decoder: "florence2_decoder.hef"
+  tokenizer: "tokenizer.json"
+  
+  # Generation parameters (defaults)
+  max_length: 100
+  min_length: 10
+  temperature: 0.7
+  
+  # Image preprocessing
+  image_size: 384
+  max_image_bytes: 10485760  # 10 MB
+
+resources:
+  # Memory limits
+  memory_limit: "4G"
+  vram_budget: "3G"
+  
+  # Request limits
+  max_concurrent_requests: 1
+  request_timeout_seconds: 30
+
+logging:
+  level: "INFO"
+  format: "json"
+  
+  # Log rotation (if file logging enabled)
+  log_file: "/opt/hailo/florence/logs/service.log"
+  max_size_mb: 100
+  backup_count: 3
+
+health:
+  # Health check configuration
+  startup_timeout_seconds: 60
+  model_load_timeout_seconds: 120
+  
+metrics:
+  # Metrics collection
+  enabled: true
+  retention_seconds: 3600

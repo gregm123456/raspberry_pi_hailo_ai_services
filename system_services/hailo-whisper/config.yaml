@@ -1,0 +1,40 @@
+server:
+  host: 0.0.0.0
+  port: 11436
+
+model:
+  # Whisper model size and quantization
+  # Supported: whisper-tiny, whisper-base, whisper-small, whisper-medium
+  name: "whisper-small"
+  # Model quantization variant (int8 for best NPU performance)
+  variant: "int8"
+  # keep_alive controls model lifecycle:
+  # -1 = persistent (keep loaded indefinitely)
+  # 0 = unload immediately after request
+  # N = unload after N seconds (e.g., 300 = 5 minutes)
+  # Default if omitted: -1 (persistent recommended for speech-to-text services)
+  keep_alive: -1
+
+transcription:
+  # Default language (ISO 639-1 code: 'en', 'es', 'fr', etc.)
+  # null = auto-detect language
+  language: "en"
+  # Temperature for sampling (0.0 = greedy, higher = more random)
+  temperature: 0.0
+  # Beam size for beam search decoding
+  beam_size: 5
+  # Voice Activity Detection filtering (removes silence)
+  vad_filter: true
+  # Maximum audio duration in seconds (5 minutes default)
+  max_audio_duration_seconds: 300
+
+storage:
+  # Directory for temporary audio file cache
+  cache_dir: "/var/lib/hailo-whisper/cache"
+
+# Optional resource limits (tunable)
+resource_limits:
+  # systemd unit memory cap (Whisper models need more RAM)
+  memory_max: "3G"
+  # systemd unit CPU quota (80% = can use 4 out of 5 CPU cores on Pi 5)
+  cpu_quota: "80%"

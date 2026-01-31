@@ -1,0 +1,27 @@
+server:
+  host: 0.0.0.0
+  port: 11435
+
+model:
+  # Model name and variant
+  name: "qwen2-vl-2b-instruct"
+  # keep_alive controls model lifecycle:
+  # -1 = persistent (keep loaded indefinitely)
+  # 0 = unload immediately after request
+  # N = unload after N seconds (e.g., 300 = 5 minutes)
+  # Default if omitted: 300
+  keep_alive: -1
+
+generation:
+  # Default inference parameters
+  temperature: 0.7
+  max_tokens: 200
+  top_p: 0.9
+  seed: null  # null = random, set to integer for reproducibility
+
+# Optional resource limits (tunable)
+resource_limits:
+  # systemd unit memory cap
+  memory_max: "4G"
+  # systemd unit CPU quota (80% = can use 4 out of 5 CPU cores on Pi 5)
+  cpu_quota: "80%"

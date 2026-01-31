@@ -1,0 +1,29 @@
+server:
+  host: 0.0.0.0
+  port: 11436
+
+model:
+  # Model name and variant
+  name: "scdepthv3"
+  # Type: monocular or stereo
+  type: "monocular"
+  # keep_alive controls model lifecycle:
+  # -1 = persistent (keep loaded indefinitely)
+  # 0 = unload immediately after request
+  # N = unload after N seconds (e.g., 300 = 5 minutes)
+  keep_alive: -1
+
+output:
+  # Output format: numpy (base64 npz), image (colorized PNG), or both
+  format: "both"
+  # Colormap for depth visualization: viridis, plasma, magma, turbo, jet
+  colormap: "viridis"
+  # Normalize depth values to 0-1 range
+  normalize: true
+
+# Optional resource limits (tunable)
+resource_limits:
+  # systemd unit memory cap
+  memory_max: "3G"
+  # systemd unit CPU quota (80% = can use 4 out of 5 CPU cores on Pi 5)
+  cpu_quota: "80%"

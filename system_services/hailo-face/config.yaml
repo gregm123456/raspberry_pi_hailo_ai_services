@@ -1,0 +1,73 @@
+server:
+  host: 0.0.0.0
+  port: 5002
+  debug: false
+
+face_recognition:
+  # Detection model: retinaface or scrfd (default scrfd for better accuracy)
+  detection_model: scrfd_10g
+  
+  # Recognition model: arcface_mobilefacenet (default for Hailo-10H)
+  recognition_model: arcface_mobilefacenet
+  
+  # Embedding dimension (512 for arcface_mobilefacenet)
+  embedding_dimension: 512
+  
+  # Device index (typically 0 for single device)
+  device: 0
+  
+  # Detection confidence threshold (0.0 - 1.0)
+  detection_threshold: 0.6
+  
+  # Recognition confidence threshold (0.0 - 1.0)
+  recognition_threshold: 0.5
+  
+  # Maximum faces to detect per image
+  max_faces: 10
+  
+  # Face database path for known identities
+  database_path: /var/lib/hailo-face/database
+  
+  # Inference parameters
+  batch_size: 1
+  device_timeout_ms: 5000
+
+# Face database management
+database:
+  # Enable persistent storage of face embeddings
+  enabled: true
+  
+  # SQLite database file
+  db_file: /var/lib/hailo-face/faces.db
+  
+  # Automatic backup on startup
+  backup_enabled: true
+  backup_path: /var/lib/hailo-face/backups
+  
+  # Maximum embeddings per identity
+  max_embeddings_per_identity: 10
+
+# Performance tuning
+performance:
+  # Number of worker threads for concurrent requests
+  worker_threads: 2
+  
+  # Maximum queue size for concurrent requests
+  max_queue_size: 10
+  
+  # Request timeout (seconds)  
+  request_timeout: 30
+  
+  # Optional model warmup on startup (disable for faster startup)
+  warmup_enabled: false
+  warmup_iterations: 3
+
+# Resource limits (advanced; tuned by installer)
+resource_limits:
+  memory_max: "3G"
+  cpu_quota: "80%"
+
+# Logging
+logging:
+  level: INFO
+  format: json

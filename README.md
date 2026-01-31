@@ -21,20 +21,26 @@ Modular, persistent system services for leveraging the Hailo-10H NPU acceleratio
 - **Prerequisites:** Hailo-10H kernel driver and runtime (`dkms`, `hailo-h10-all`)
 - **Management:** systemd service units for lifecycle control and logging via journald
 
-## Services (In Development)
+## Services
 
-This project establishes standardized patterns for wrapping Hailo-accelerated AI capabilities as systemd services. Services planned include:
+This project establishes standardized patterns for wrapping Hailo-accelerated AI capabilities as systemd services.
 
-- **hailo-ollama** — LLM inference service (Ollama-compatible REST API) *[starting point]*
-- **Object Detection** — YOLO/SSD bounding box detection
-- **Pose Estimation** — YOLOv8 keypoint detection
-- **Speech-to-Text** — Whisper-accelerated transcription
-- **Text-to-Speech** — Piper TTS synthesis
-- **OCR** — PaddleOCR text detection and recognition
-- **Depth Estimation** — Monocular and stereo depth mapping
-- **Face Recognition** — Detection and face embedding comparison
+### Proven Services
+- **hailo-clip** — CLIP image-text embedding model
 
-Each service will follow the same deployment patterns, offer idiomatic APIs for its domain, and integrate with systemd for reliable operation.
+### First-Draft Services (Untested)
+- **hailo-ollama** — LLM inference service (Ollama-compatible REST API)
+- **hailo-whisper** — Speech-to-text transcription (Whisper models)
+- **hailo-piper** — Text-to-speech synthesis (Piper TTS)
+- **hailo-ocr** — Optical character recognition (PaddleOCR)
+- **hailo-depth** — Monocular and stereo depth estimation
+- **hailo-face** — Face detection and embedding comparison
+- **hailo-pose** — Pose estimation (YOLOv8 keypoints)
+- **hailo-scrfd** — Specialized face detection (SCRFD)
+- **hailo-florence** — Vision understanding and captioning
+- **hailo-vision** — General vision feature extraction
+
+Each service follows the same deployment patterns, offers idiomatic APIs for its domain, and integrates with systemd for reliable operation. Services marked as "first-draft" have draft installers and require testing before production use.
 
 ## Getting Started
 

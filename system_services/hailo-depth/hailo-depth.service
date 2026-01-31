@@ -1,0 +1,49 @@
+[Unit]
+Description=Hailo Depth Estimation Service (scdepthv3 on Hailo-10H)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=hailo-depth
+Group=hailo-depth
+
+# Set working directory for log file creation
+WorkingDirectory=/var/lib/hailo-depth
+
+# Ensure writable state dir exists and is owned correctly
+StateDirectory=hailo-depth
+
+# XDG wiring: force config + data locations
+Environment=XDG_CONFIG_HOME=/etc/xdg
+Environment=XDG_CONFIG_DIRS=/etc/xdg
+Environment=XDG_DATA_HOME=/var/lib
+Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
+
+# HailoRT logging to journald
+Environment=HAILO_PRINT_TO_SYSLOG=1
+
+# Python unbuffered output for real-time logging
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/local/bin/hailo-depth-server
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Resource limits (tunable via systemd drop-in overrides)
+MemoryMax=3G
+CPUQuota=80%
+
+# Security hardening
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/hailo-depth /etc/xdg/hailo-depth
+
+[Install]
+WantedBy=multi-user.target

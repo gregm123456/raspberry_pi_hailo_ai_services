@@ -1,0 +1,42 @@
+server:
+  host: 0.0.0.0
+  port: 11436
+
+ocr:
+  # Language models to support: 'en', 'ch_sim', 'ch_tra', etc.
+  # See https://github.com/PaddlePaddle/PaddleOCR/blob/release/2.7/doc/doc_en/multi_languages_en.md
+  languages:
+    - en
+  
+  # CPU-based inference (set to false to use GPU if available)
+  use_gpu: false
+  
+  # Enable text recognition (character-level output)
+  enable_recognition: true
+  
+  # Confidence thresholds for detection and recognition
+  det_threshold: 0.3       # Detection confidence (0.0-1.0)
+  rec_threshold: 0.5       # Recognition confidence (0.0-1.0)
+
+processing:
+  # Maximum image dimension (0 = no limit, practical max ~4096)
+  max_image_size: 4096
+  
+  # JPEG quality for internal processing (1-100, 90 recommended)
+  jpeg_quality: 90
+  
+  # Enable in-memory result caching
+  enable_caching: false
+  
+  # Cache time-to-live in seconds (3600 = 1 hour)
+  cache_ttl_seconds: 3600
+  
+  # Maximum cache size in MB before LRU eviction (0 = unlimited)
+  max_cache_size_mb: 500
+
+# Resource limits (tunable via systemd drop-in overrides)
+resource_limits:
+  # systemd unit memory cap
+  memory_max: "2.5G"
+  # systemd unit CPU quota (75% = can use 3 out of 4 CPU cores on Pi 5)
+  cpu_quota: "75%"

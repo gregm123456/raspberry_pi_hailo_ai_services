@@ -1,0 +1,43 @@
+[Unit]
+Description=Hailo CLIP (Zero-Shot Image Classification on Hailo-10H)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=hailo-clip
+Group=hailo-clip
+
+# Set working directory for log file creation
+WorkingDirectory=/var/lib/hailo-clip
+
+# Ensure writable state dir exists and is owned correctly
+StateDirectory=hailo-clip
+
+# XDG wiring: force config + data locations
+Environment=XDG_CONFIG_HOME=/etc/xdg
+Environment=XDG_CONFIG_DIRS=/etc/xdg
+Environment=XDG_DATA_HOME=/var/lib
+Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
+
+# HailoRT and Python optimization
+Environment=HAILO_PRINT_TO_SYSLOG=1
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 /opt/hailo-clip/hailo_clip_service.py
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Model loading overhead; extended startup timeout
+TimeoutStartSec=120
+
+# Optional Pi guardrails (tune as needed)
+MemoryMax=3G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

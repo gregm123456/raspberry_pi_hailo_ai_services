@@ -1,0 +1,42 @@
+[Unit]
+Description=Hailo Piper TTS (Text-to-Speech on Raspberry Pi 5)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=hailo-piper
+Group=hailo-piper
+
+# Set working directory for log file creation
+WorkingDirectory=/var/lib/hailo-piper
+
+# Ensure writable state dir exists and is owned correctly
+StateDirectory=hailo-piper
+
+# XDG wiring: force config + data locations
+Environment=XDG_CONFIG_HOME=/etc/xdg
+Environment=XDG_CONFIG_DIRS=/etc/xdg
+Environment=XDG_DATA_HOME=/var/lib
+Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
+
+# Python optimization
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/usr/bin/python3 /opt/hailo-piper/hailo_piper_service.py
+
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Model loading overhead; extended startup timeout
+TimeoutStartSec=120
+
+# Optional Pi guardrails (tune as needed)
+MemoryMax=2G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

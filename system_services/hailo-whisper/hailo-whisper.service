@@ -1,0 +1,37 @@
+[Unit]
+Description=Hailo Whisper Speech-to-Text Service
+Documentation=file:///home/gregm/raspberry_pi_hailo_ai_services/system_services/hailo-whisper/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hailo-whisper
+Group=hailo-whisper
+ExecStart=/usr/local/bin/hailo-whisper-server
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hailo-whisper
+ReadOnlyPaths=/etc/hailo /etc/xdg/hailo-whisper
+
+# Device access
+DeviceAllow=/dev/hailo0 rw
+
+# Resource limits (from config.yaml)
+MemoryMax=3G
+CPUQuota=80%
+
+# Environment
+Environment="XDG_CONFIG_HOME=/etc/xdg"
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target

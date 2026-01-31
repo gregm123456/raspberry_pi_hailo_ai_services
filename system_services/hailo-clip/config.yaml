@@ -1,0 +1,51 @@
+server:
+  host: 0.0.0.0
+  port: 5000
+  debug: false
+
+clip:
+  # Model selection: clip-resnet-50x4 (recommended) or custom HEF path
+  model: clip-resnet-50x4
+  
+  # Model embedding dimension (640 for ResNet-50x4)
+  embedding_dimension: 640
+  
+  # Device index (typically 0 for single device)
+  device: 0
+  
+  # Image preprocessing
+  image_size: 224
+  
+  # Inference parameters
+  batch_size: 1
+  device_timeout_ms: 5000
+
+# Text embedding strategy
+text_embedding:
+  # 'precomputed' for batch processing, 'ondemand' for single queries
+  mode: ondemand
+  # Optional cache for frequently used prompts
+  cache_enabled: true
+  cache_max_entries: 1000
+
+# Performance tuning
+performance:
+  # Number of worker threads for concurrent requests
+  worker_threads: 2
+  # Maximum queue size for concurrent requests
+  max_queue_size: 10
+  # Request timeout (seconds)  
+  request_timeout: 30
+  # Optional model warmup on startup (disable for faster startup)
+  warmup_enabled: false
+  warmup_iterations: 3
+
+# Resource limits (advanced; tuned by installer)
+resource_limits:
+  memory_max: "3G"
+  cpu_quota: "80%"
+
+# Logging
+logging:
+  level: INFO
+  format: json
