@@ -88,3 +88,18 @@ sudo python3 render_config.py --input /etc/hailo/hailo-ollama.yaml --output /etc
 **Fix:**
 - Install PyYAML: `sudo apt install python3-yaml`
 - Correct YAML syntax and re-run installer
+
+## HailoRT log file warning
+
+**Log output:**
+```
+HailoRT warning: Cannot create log file hailort.log! Please check the directory . write permissions.
+```
+
+**This is benign.** The warning appears during HailoRT library initialization but does not affect service operation. The service:
+- Sets `HAILO_PRINT_TO_SYSLOG=1` to redirect HailoRT output to journald
+- Has a writable working directory (`/var/lib/hailo-ollama`)
+- Continues to operate normally despite the warning
+
+You can safely ignore this warning in the logs.
+

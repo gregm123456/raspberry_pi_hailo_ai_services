@@ -124,6 +124,14 @@ configure_device_permissions() {
     usermod -aG "${device_group}" "${SERVICE_USER}"
 }
 
+create_state_directories() {
+    log "Creating model directory structure"
+    mkdir -p /var/lib/hailo-ollama/models/manifests
+    mkdir -p /var/lib/hailo-ollama/models/blobs
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/lib/hailo-ollama
+    chmod -R u+rwX,g+rX,o-rwx /var/lib/hailo-ollama
+}
+
 install_config() {
     install -d -m 0755 /etc/hailo
     if [[ ! -f "${ETC_HAILO_CONFIG}" ]]; then
@@ -248,6 +256,7 @@ main() {
 
     create_user_group
     configure_device_permissions
+    create_state_directories
     install_config
 
     local port

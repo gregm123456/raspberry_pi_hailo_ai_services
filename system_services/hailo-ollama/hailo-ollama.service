@@ -9,6 +9,9 @@ Type=simple
 User=hailo-ollama
 Group=hailo-ollama
 
+# Set working directory for log file creation
+WorkingDirectory=/var/lib/hailo-ollama
+
 # Ensure writable state dir exists and is owned correctly
 StateDirectory=hailo-ollama
 
@@ -17,6 +20,9 @@ Environment=XDG_CONFIG_HOME=/etc/xdg
 Environment=XDG_CONFIG_DIRS=/etc/xdg
 Environment=XDG_DATA_HOME=/var/lib
 Environment=XDG_DATA_DIRS=/var/lib
+
+# HailoRT logging to journald instead of local files
+Environment=HAILO_PRINT_TO_SYSLOG=1
 
 ExecStart=/usr/bin/env hailo-ollama
 
