@@ -54,7 +54,28 @@ Query available models:
 
 ```bash
 curl http://localhost:11434/api/version
-curl http://localhost:11434/api/tags
+curl http://localhost:11434/hailo/v1/list
+```
+
+### Available Models
+
+Eligible models with manifests:
+
+- **qwen2:1.5b** — Qwen2 1.5B parameter model (Q4_0 quantization)
+- **qwen2.5-instruct:1.5b** — Qwen2.5 1.5B instruction-tuned model
+- **qwen2.5-coder:1.5b** — Qwen2.5 1.5B code completion model
+- **llama3.2:3b** — Llama 3.2 3B model
+- **deepseek_r1_distill_qwen:1.5b** — DeepSeek R1 distilled to Qwen 1.5B
+
+Pull a specific model (downloads into local cache):
+
+```bash
+curl -X POST http://localhost:11434/api/pull \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen2:1.5b",
+    "stream": true
+  }'
 ```
 
 Run inference (OpenAI-compatible):
