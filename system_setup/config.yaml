@@ -1,0 +1,61 @@
+# System Setup Configuration
+# Hailo-10H Installation Parameters for Raspberry Pi 5 AI HAT+ 2
+
+# --- OS Configuration ---
+os_version: "Trixie"
+os_variant: "raspberry_pi_os"
+os_architecture: "aarch64"
+
+# --- Hardware Configuration ---
+hardware:
+  device: "Raspberry Pi 5"
+  npu: "Hailo-10H"
+  interface: "PCIe M.2"
+  ai_hat: "AI HAT+ 2"
+
+# --- Hailo Package Configuration ---
+hailo:
+  # Package name for AI HAT+ 2 (NOT hailo-all)
+  package_name: "hailo-h10-all"
+  
+  # Expected driver version after installation
+  expected_driver_version: "4.17.0"
+  
+  # Expected firmware version
+  expected_firmware_version: "4.17.0"
+  
+  # Device node path
+  device_node: "/dev/hailo0"
+  
+  # HailRT CLI tool
+  cli_tool: "hailortcli"
+
+# --- Dependencies ---
+dependencies:
+  dkms: "yes"
+  kernel_headers: "auto"
+  build_essential: "no"
+
+# --- Reboot Behavior ---
+reboot:
+  auto_reboot_after_install: false  # Prompt user instead
+  reboot_timeout_seconds: 10
+
+# --- Logging ---
+logging:
+  log_directory: "./"
+  log_level: "info"
+  keep_logs: true
+
+# --- Verification ---
+verification:
+  run_after_install: false  # User must manually run verify.sh
+  check_firmware: true
+  check_kernel_module: true
+  check_device_node: true
+
+# --- Troubleshooting ---
+troubleshooting:
+  color_output: true
+  show_detailed_errors: true
+  save_diagnostics: true
