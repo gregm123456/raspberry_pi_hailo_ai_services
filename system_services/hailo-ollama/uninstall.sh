@@ -73,6 +73,13 @@ remove_unit() {
         rm -f "${UNIT_DEST}"
         systemctl daemon-reload
     fi
+
+    # Remove monitoring drop-in if present
+    if [[ -d "/etc/systemd/system/${SERVICE_NAME}.service.d" ]]; then
+        rm -f /etc/systemd/system/${SERVICE_NAME}.service.d/monitor.conf || true
+        rmdir --ignore-fail-on-non-empty /etc/systemd/system/${SERVICE_NAME}.service.d || true
+        systemctl daemon-reload || true
+    fi
 }
 
 remove_user_group() {

@@ -179,6 +179,17 @@ install_unit() {
     log "Installing systemd unit to ${UNIT_DEST}"
     install -m 0644 "${UNIT_SRC}" "${UNIT_DEST}"
 
+    # Ensure monitoring is enabled for HailoRT monitor hooks so
+    # `hailortcli monitor` can observe the running process. Create
+    # an idempotent systemd drop-in that sets HAILO_MONITOR=1 for the
+    # installed unit. This keeps the repo unit unchanged for development
+    # but ensures deployed systems have monitoring enabled.
+    mkdir -p /etc/systemd/system/${SERVICE_NAME}.service.d
+    cat > /etc/systemd/system/${SERVICE_NAME}.service.d/monitor.conf <<'EOF'
+[Service]
+Environment=HAILO_MONITOR=1
+EOF
+
     systemctl daemon-reload
     systemctl enable --now "${SERVICE_NAME}.service"
 }
