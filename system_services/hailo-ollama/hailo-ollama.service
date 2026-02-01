@@ -28,7 +28,9 @@ Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
 
 # HailoRT logging to journald instead of local files
 Environment=HAILO_PRINT_TO_SYSLOG=1
+# Enable monitoring for hailortcli monitor
 Environment=HAILO_MONITOR=1
+Environment=HAILO_TRACE=scheduler
 
 ExecStart=/usr/bin/env hailo-ollama
 

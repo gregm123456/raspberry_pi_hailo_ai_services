@@ -188,6 +188,8 @@ install_unit() {
     cat > /etc/systemd/system/${SERVICE_NAME}.service.d/monitor.conf <<'EOF'
 [Service]
 Environment=HAILO_MONITOR=1
+Environment=HAILO_TRACE=scheduler
+Environment=HAILO_MONITOR_TIME_INTERVAL=500
 EOF
 
     systemctl daemon-reload
