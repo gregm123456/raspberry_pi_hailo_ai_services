@@ -300,16 +300,77 @@ class APIHandler:
                 status=500
             )
 
+    async def analyze(self, request: web.Request) -> web.Response:
+        """POST /v1/vision/analyze - Batch image analysis."""
+        
+        try:
+            payload = await request.json()
+        except Exception as e:
+            return web.json_response(
+                {"error": {"message": f"Invalid JSON: {e}", "type": "invalid_request_error"}},
+                status=400
+            )
+        
+        images = payload.get("images", [])
+        prompt = payload.get("prompt")
+        
+        if not images:
+            return web.json_response(
+                {"error": {"message": "Missing 'images' field", "type": "invalid_request_error"}},
+                status=400
+            )
+        
+        if not prompt:
+            return web.json_response(
+                {"error": {"message": "Missing 'prompt' field", "type": "invalid_request_error"}},
+                status=400
+            )
+        
+        # Extract generation parameters
+        temperature = payload.get("temperature", self.service.config.temperature)
+        max_tokens = payload.get("max_tokens", self.service.config.max_tokens)
+        
+        results = []
+        total_inference_time = 0
+        
+        try:
+            for image_url in images:
+                result = await self.service.process_image(
+                    image_url=image_url,
+                    text_prompt=prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                results.append({
+                    "image_url": image_url[:100] + "..." if len(image_url) > 100 else image_url,
+                    "analysis": result["content"]
+                })
+                total_inference_time += result["inference_time_ms"]
+            
+            return web.json_response({
+                "results": results,
+                "total_inference_time_ms": total_inference_time
+            })
+            
+        except Exception as e:
+            logger.error(f"Analysis error: {e}")
+            return web.json_response(
+                {"error": {"message": str(e), "type": "internal_error"}},
+                status=500
+            )
+
 async def create_app(service: VisionService) -> web.Application:
     """Create aiohttp application."""
     handler = APIHandler(service)
-    app = web.Application()
+    # Increase client_max_size to handle large images (64MB)
+    app = web.Application(client_max_size=1024**2 * 64)
     
     # Routes
     app.router.add_get('/health', handler.health)
     app.router.add_get('/health/ready', handler.health_ready)
     app.router.add_get('/v1/models', handler.list_models)
     app.router.add_post('/v1/chat/completions', handler.chat_completions)
+    app.router.add_post('/v1/vision/analyze', handler.analyze)
     
     return app
 

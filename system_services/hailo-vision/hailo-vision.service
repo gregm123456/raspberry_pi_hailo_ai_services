@@ -27,7 +27,7 @@ Environment=HAILO_PRINT_TO_SYSLOG=1
 # Python unbuffered output for real-time logging
 Environment=PYTHONUNBUFFERED=1
 
-ExecStart=/usr/local/bin/hailo-vision-server
+ExecStart=/opt/hailo-vision/venv/bin/python3 /opt/hailo-vision/hailo_vision_server.py
 
 Restart=always
 RestartSec=5

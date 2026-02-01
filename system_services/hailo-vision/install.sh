@@ -13,8 +13,8 @@ ETC_XDG_DIR="/etc/xdg/hailo-vision"
 JSON_CONFIG="${ETC_XDG_DIR}/hailo-vision.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 DEFAULT_PORT="11435"
+SERVICE_DIR="/opt/hailo-vision"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_vision_server.py"
-INSTALL_TARGET="/usr/local/bin/hailo-vision-server"
 
 WARMUP_MODEL=""
 
@@ -83,21 +83,19 @@ preflight_hailo() {
 }
 
 preflight_hailo_hailort() {
-    # Check for HailoRT Python bindings
+    # Check for HailoRT Python bindings in system site-packages
     if ! python3 - <<'PY' >/dev/null 2>&1
 try:
-    from hailo import HailoRT
+    import hailo_platform
     print("OK")
 except ImportError:
     raise
 PY
     then
-        error "HailoRT Python bindings not found."
+        error "HailoRT Python bindings (hailo_platform) not found in system site-packages."
         error ""
-        error "Install from Hailo Developer Zone or via pip:"
-        error "  pip3 install hailort  # or from Dev Zone Debian package"
-        error ""
-        error "Verify with: python3 -c 'from hailo import HailoRT; print(HailoRT.__version__)'"
+        error "Ensure python3-h10-hailort is installed:"
+        error "  sudo apt install python3-h10-hailort"
         exit 1
     fi
 }
@@ -112,6 +110,20 @@ create_user_group() {
         log "Creating system user ${SERVICE_USER}"
         useradd -r -s /usr/sbin/nologin -d /var/lib/hailo-vision -g "${SERVICE_GROUP}" "${SERVICE_USER}"
     fi
+}
+
+create_venv() {
+    log "Creating Python virtual environment with system site packages"
+    mkdir -p "${SERVICE_DIR}"
+    rm -rf "${SERVICE_DIR}/venv"
+    python3 -m venv --system-site-packages "${SERVICE_DIR}/venv"
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/venv"
+}
+
+install_requirements() {
+    log "Installing Python requirements in venv"
+    "${SERVICE_DIR}/venv/bin/pip" install --upgrade pip
+    "${SERVICE_DIR}/venv/bin/pip" install -r "${SERVICE_DIR}/requirements.txt"
 }
 
 configure_device_permissions() {
@@ -136,9 +148,18 @@ create_state_directories() {
     log "Creating service directory structure"
     mkdir -p /var/lib/hailo-vision/models
     mkdir -p /var/lib/hailo-vision/cache
+    mkdir -p "${SERVICE_DIR}"
 
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/lib/hailo-vision
     chmod -R u+rwX,g+rX,o-rwx /var/lib/hailo-vision
+    
+    # Copy server code
+    cp "${SERVER_SCRIPT}" "${SERVICE_DIR}/"
+    cp "${SCRIPT_DIR}/render_config.py" "${SERVICE_DIR}/"
+    cp "${SCRIPT_DIR}/requirements.txt" "${SERVICE_DIR}/"
+    
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}"
+    chmod 0755 "${SERVICE_DIR}/hailo_vision_server.py"
 }
 
 install_config() {
@@ -152,17 +173,8 @@ install_config() {
 
     install -d -m 0755 "${ETC_XDG_DIR}"
     log "Rendering JSON config to ${JSON_CONFIG}"
+    # Use the venv python for rendering if needed, or system python if it has yaml
     python3 "${RENDER_SCRIPT}" --input "${ETC_HAILO_CONFIG}" --output "${JSON_CONFIG}"
-}
-
-install_server_script() {
-    if [[ ! -f "${SERVER_SCRIPT}" ]]; then
-        error "Server script not found: ${SERVER_SCRIPT}"
-        exit 1
-    fi
-
-    log "Installing server script to ${INSTALL_TARGET}"
-    install -m 0755 "${SERVER_SCRIPT}" "${INSTALL_TARGET}"
 }
 
 get_config_port() {
@@ -197,6 +209,7 @@ install_unit() {
 
     systemctl daemon-reload
     systemctl enable --now "${SERVICE_NAME}.service"
+    systemctl restart "${SERVICE_NAME}.service"
 }
 
 verify_service() {
@@ -260,8 +273,9 @@ main() {
     create_user_group
     configure_device_permissions
     create_state_directories
+    create_venv
+    install_requirements
     install_config
-    install_server_script
 
     local port
     port="$(get_config_port)"
@@ -280,3 +294,4 @@ main() {
 }
 
 main "$@"
+
