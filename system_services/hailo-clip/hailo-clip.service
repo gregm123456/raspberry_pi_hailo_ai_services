@@ -25,7 +25,7 @@ Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
 Environment=HAILO_PRINT_TO_SYSLOG=1
 Environment=PYTHONUNBUFFERED=1
 
-ExecStart=/usr/bin/python3 /opt/hailo-clip/hailo_clip_service.py
+ExecStart=/opt/hailo-clip/venv/bin/python3 /opt/hailo-clip/hailo_clip_service.py
 
 Restart=always
 RestartSec=5

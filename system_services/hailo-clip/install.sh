@@ -14,6 +14,9 @@ JSON_CONFIG="${ETC_XDG_DIR}/hailo-clip.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 DEFAULT_PORT="5000"
 SERVICE_DIR="/opt/hailo-clip"
+HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
+HAILO_APPS_VENDOR_DIR="${SERVICE_DIR}/vendor"
+HAILO_APPS_VENDOR_PATH="${HAILO_APPS_VENDOR_DIR}/hailo-apps"
 
 usage() {
     cat <<'EOF'
@@ -86,10 +89,24 @@ preflight_hailo() {
 }
 
 preflight_clip_models() {
-    if [[ ! -d "${SCRIPT_DIR}/../../../hailo-apps/hailo_apps/python/pipeline_apps/clip" ]]; then
+    if [[ ! -d "${HAILO_APPS_SRC}/hailo_apps/python/pipeline_apps/clip" ]]; then
         error "CLIP application not found in hailo-apps. Ensure hailo-apps submodule is initialized."
         exit 1
     fi
+}
+
+vendor_hailo_apps() {
+    log "Vendoring hailo-apps into ${HAILO_APPS_VENDOR_PATH}"
+    rm -rf "${HAILO_APPS_VENDOR_PATH}"
+    mkdir -p "${HAILO_APPS_VENDOR_DIR}"
+
+    # Copy the hailo-apps repo into /opt so the systemd service user doesn't need
+    # access to a developer home directory (e.g., /home/gregm).
+    cp -a "${HAILO_APPS_SRC}" "${HAILO_APPS_VENDOR_DIR}/"
+
+    # Ensure readable by the service user
+    chown -R root:root "${HAILO_APPS_VENDOR_PATH}"
+    chmod -R u+rwX,go+rX,go-w "${HAILO_APPS_VENDOR_PATH}"
 }
 
 create_user_group() {
@@ -102,6 +119,55 @@ create_user_group() {
         log "Creating system user ${SERVICE_USER}"
         useradd -r -s /usr/sbin/nologin -d /var/lib/hailo-clip -g "${SERVICE_GROUP}" "${SERVICE_USER}"
     fi
+}
+
+create_venv() {
+    log "Creating Python virtual environment with system site packages"
+    rm -rf "${SERVICE_DIR}/venv"
+    python3 -m venv --system-site-packages "${SERVICE_DIR}/venv"
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/venv"
+}
+
+install_requirements() {
+    log "Installing Python requirements in venv"
+    "${SERVICE_DIR}/venv/bin/pip" install --upgrade pip
+    "${SERVICE_DIR}/venv/bin/pip" install -r "${SERVICE_DIR}/requirements.txt"
+
+    log "Installing vendored hailo-apps into venv"
+    "${SERVICE_DIR}/venv/bin/pip" install "${HAILO_APPS_VENDOR_PATH}"
+}
+
+download_resources() {
+    log "Downloading CLIP models and resources..."
+    # Use the vendored hailo-apps to download necessary models and resources
+    # We do this as root to ensure they go to /usr/local/hailo/resources
+    PYTHONPATH="${HAILO_APPS_VENDOR_PATH}" "${SERVICE_DIR}/venv/bin/python3" -c "
+from hailo_apps.python.core.common.core import resolve_hef_path
+from hailo_apps.python.core.common.defines import CLIP_PIPELINE
+print('Downloading image encoder...')
+resolve_hef_path('clip_vit_b_32_image_encoder', CLIP_PIPELINE)
+print('Downloading text encoder...')
+resolve_hef_path('clip_vit_b_32_text_encoder', CLIP_PIPELINE)
+"
+    
+    local res_dir="/usr/local/hailo/resources"
+    mkdir -p "${res_dir}/json" "${res_dir}/npy"
+    
+    log "Downloading CLIP support files (tokenizer, embeddings, projection)..."
+    # Ensure they are not 0-byte or corrupted from previous failed attempts
+    find "${res_dir}/json" "${res_dir}/npy" -size 0 -delete 2>/dev/null || true
+
+    [ -f "${res_dir}/json/clip_tokenizer.json" ] || \
+        curl -sL "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/configs/clip_tokenizer.json" -o "${res_dir}/json/clip_tokenizer.json"
+    [ -f "${res_dir}/npy/token_embedding_lut.npy" ] || \
+        curl -sL "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/npy/token_embedding_lut.npy" -o "${res_dir}/npy/token_embedding_lut.npy"
+    [ -f "${res_dir}/npy/text_projection.npy" ] || \
+        curl -sL "https://hailo-csdata.s3.eu-west-2.amazonaws.com/resources/npy/text_projection.npy" -o "${res_dir}/npy/text_projection.npy"
+    
+    # Ensure readable by everyone but writable by root
+    chmod -R 644 "${res_dir}/models/hailo10h"/clip* 2>/dev/null || true
+    chmod -R 644 "${res_dir}/json"/clip* 2>/dev/null || true
+    chmod -R 644 "${res_dir}/npy"/*.npy 2>/dev/null || true
 }
 
 configure_device_permissions() {
@@ -135,6 +201,12 @@ create_state_directories() {
         cp "${SCRIPT_DIR}/hailo_clip_service.py" "${SERVICE_DIR}/"
         chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/hailo_clip_service.py"
         chmod 0755 "${SERVICE_DIR}/hailo_clip_service.py"
+    fi
+
+    # Copy requirements.txt
+    if [[ -f "${SCRIPT_DIR}/requirements.txt" ]]; then
+        cp "${SCRIPT_DIR}/requirements.txt" "${SERVICE_DIR}/"
+        chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/requirements.txt"
     fi
 }
 
@@ -184,6 +256,9 @@ install_unit() {
 
     systemctl daemon-reload
     systemctl enable --now "${SERVICE_NAME}.service"
+
+    # Ensure updated unit environment applies even if already running.
+    systemctl restart "${SERVICE_NAME}.service"
 }
 
 verify_service() {
@@ -207,6 +282,16 @@ verify_service() {
         warn "Service may still be initializing. Check logs: journalctl -u ${SERVICE_NAME}.service -n 100 --no-pager"
     else
         warn "curl not found; skipping HTTP health check"
+    fi
+
+    # Smoke-test that hailo-apps is importable as the service user.
+    if command -v sudo >/dev/null 2>&1; then
+        if ! sudo -u "${SERVICE_USER}" bash -lc "cd /var/lib/hailo-clip && '${SERVICE_DIR}/venv/bin/python3' -c 'import hailo_apps.python.pipeline_apps.clip.clip'" >/dev/null 2>&1; then
+            warn "hailo-apps import check failed for ${SERVICE_USER}."
+            warn "If this persists, check journal logs and confirm hailo-apps was installed into the venv."
+        else
+            log "✓ hailo-apps import check succeeded"
+        fi
     fi
 }
 
@@ -237,11 +322,14 @@ main() {
     require_root
     preflight_hailo
     preflight_clip_models
-    check_python_requirements
 
     create_user_group
     configure_device_permissions
     create_state_directories
+    vendor_hailo_apps
+    create_venv
+    install_requirements
+    download_resources
     install_config
 
     local port

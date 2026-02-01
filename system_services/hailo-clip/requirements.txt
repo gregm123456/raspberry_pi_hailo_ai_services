@@ -1,0 +1,13 @@
+PyYAML>=6.0
+numpy>=1.24
+Pillow>=10.0
+torch>=2.0
+torchvision>=0.15
+opencv-python<=4.10.0.84
+Flask>=3.0
+requests>=2.31
+setproctitle
+python-dotenv
+loguru
+scipy>=1.9.3
+tqdm

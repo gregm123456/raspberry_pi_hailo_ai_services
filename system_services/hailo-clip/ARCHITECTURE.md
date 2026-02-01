@@ -46,6 +46,10 @@ systemd: hailo-clip.service
 - `TimeoutStartSec=120` → Extended startup timeout for model loading
 - `Restart=always` → Auto-restart on crash
 
+**Vendored Dependencies:**
+- Installer copies the `hailo-apps` submodule into `/opt/hailo-clip/vendor/hailo-apps` so installation and runtime do not depend on any developer home directory (e.g., `/home/gregm`).
+- Installer then installs that vendored `hailo-apps` into the service virtualenv so imports work without relying on `PYTHONPATH`.
+
 **Device Access:**
 - Service user inherits device group membership (added during install)
 - Allows access to `/dev/hailo0` for NPU

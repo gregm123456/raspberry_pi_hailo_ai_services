@@ -4,11 +4,11 @@ server:
   debug: false
 
 clip:
-  # Model selection: clip-resnet-50x4 (recommended) or custom HEF path
-  model: clip-resnet-50x4
+  # Model selection: clip-vit-b-32
+  model: clip-vit-b-32
   
-  # Model embedding dimension (640 for ResNet-50x4)
-  embedding_dimension: 640
+  # Model embedding dimension (512 for ViT-B/32)
+  embedding_dimension: 512
   
   # Device index (typically 0 for single device)
   device: 0
@@ -19,6 +19,8 @@ clip:
   # Inference parameters
   batch_size: 1
   device_timeout_ms: 5000
+  apply_softmax: true
+  logit_scale: 100.0
 
 # Text embedding strategy
 text_embedding:

@@ -367,11 +367,14 @@ sudo journalctl -u hailo-clip.service
 
 1. **ImportError: hailo-apps module**
    ```bash
-   # Fix: Ensure hailo-apps is initialized
+   # Fix: ensure hailo-apps exists in the repo (installer vendors it into /opt)
    git submodule update --init --recursive
-   
-   # Reinstall service
+
+   # Reinstall service (copies hailo-apps into /opt/hailo-clip/vendor/hailo-apps)
    sudo ./install.sh
+
+   # Smoke test import as the service user
+   sudo -u hailo-clip /opt/hailo-clip/venv/bin/python3 -c "import hailo_apps.python.pipeline_apps.clip.clip; print('OK')"
    ```
 
 2. **ImportError: Flask or other dependencies**

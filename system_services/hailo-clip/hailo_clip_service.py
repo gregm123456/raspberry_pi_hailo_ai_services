@@ -25,6 +25,17 @@ import yaml
 from flask import Flask, jsonify, request
 from PIL import Image
 
+# Hailo Imports
+try:
+    from hailo_platform import VDevice, FormatType, HailoSchedulingAlgorithm
+    # We use some utilities from hailo-apps
+    from hailo_apps.python.pipeline_apps.clip import clip_text_utils
+    from hailo_apps.python.core.common.core import resolve_hef_path
+    from hailo_apps.python.core.common.defines import CLIP_PIPELINE
+    HAILO_AVAILABLE = True
+except ImportError:
+    HAILO_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -91,43 +102,92 @@ class CLIPModel:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.model = None
+        self.vdevice = None
+        self.image_infer_model = None
+        self.image_configured_model = None
+        self.text_infer_model = None
+        self.text_configured_model = None
         self.is_loaded = False
         self.lock = threading.RLock()
         
-        self.model_name = config.get("model", "clip-resnet-50x4")
-        self.device = config.get("device", 0)
-        self.embedding_dim = config.get("embedding_dimension", 640)
-        self.image_size = config.get("image_size", 224)
+        # Resources for text encoding
+        self.tokenizer = None
+        self.token_embeddings = None
+        self.text_projection = None
         
-        logger.info(f"CLIPModel initialized: {self.model_name} on device {self.device}")
+        self.model_name = config.get("model", "clip-vit-b-32")
+        self.device = config.get("device", 0)
+        self.embedding_dim = config.get("embedding_dimension", 512)
+        self.image_size = config.get("image_size", 224)
+        self.text_hef_path = None
+        self.logit_scale = config.get("logit_scale", 100.0)
+        self.apply_softmax = config.get("apply_softmax", True)
+        
+        logger.info(f"CLIPModel initialized: {self.model_name}")
     
     def load(self) -> bool:
-        """Load CLIP model from hailo-apps."""
+        """Load CLIP model using HailoRT and hailo-apps utilities."""
+        if not HAILO_AVAILABLE:
+            logger.error("Hailo dependencies not installed. Falling back to mock.")
+            self._use_mock_model()
+            return True
+
         with self.lock:
             if self.is_loaded:
                 return True
             
             try:
-                # Import CLIP pipeline from hailo-apps
-                # This assumes hailo-apps is in the Python path
-                from hailo_apps.python.pipeline_apps.clip.clip import CLIP
+                # Resolve HEF paths (the H10-H models)
+                image_hef_path = resolve_hef_path("clip_vit_b_32_image_encoder", CLIP_PIPELINE)
+                self.text_hef_path = resolve_hef_path("clip_vit_b_32_text_encoder", CLIP_PIPELINE)
                 
-                logger.info(f"Loading CLIP model: {self.model_name}")
-                self.model = CLIP(
-                    model_name=self.model_name,
-                    device_id=self.device,
-                )
+                if not image_hef_path or not self.text_hef_path:
+                    raise FileNotFoundError("Could not resolve CLIP HEF paths.")
+
+                logger.info(f"Loading Image Encoder: {image_hef_path}")
                 
+                # Setup VDevice with sharing enabled for Pi 5
+                params = VDevice.create_params()
+                # On RPi5/Hailo-10H, we don't use multi_process_service=True in VDevice params.
+                # It's intended for Hailo-15 SoC.
+                params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
+                
+                self.vdevice = VDevice(params)
+                
+                # Input/Output layer names for text encoder
+                # These are specific to clip_vit_b_32_text_encoder
+                self.text_input_layer = 'clip_vit_b_32_text_encoder/input_layer1'
+                self.text_output_layer = 'clip_vit_b_32_text_encoder/normalization25'
+
+                # 1. Initialize Image Encoder
+                self.image_infer_model = self.vdevice.create_infer_model(str(image_hef_path))
+                self.image_infer_model.input().set_format_type(FormatType.UINT8)
+                self.image_infer_model.output().set_format_type(FormatType.FLOAT32)
+                self.image_configured_model = self.image_infer_model.configure()
+                
+                # 2. Initialize Text Encoder on same VDevice
+                logger.info(f"Loading Text Encoder: {self.text_hef_path}")
+                self.text_infer_model = self.vdevice.create_infer_model(str(self.text_hef_path))
+                self.text_infer_model.input(self.text_input_layer).set_format_type(FormatType.FLOAT32)
+                self.text_infer_model.output(self.text_output_layer).set_format_type(FormatType.FLOAT32)
+                self.text_configured_model = self.text_infer_model.configure()
+
+                # 3. Load text processing resources
+                logger.info("Loading text processing resources (tokenizer, embeddings, projection)")
+                self.tokenizer = clip_text_utils.load_clip_tokenizer()
+                self.token_embeddings = clip_text_utils.load_token_embeddings()
+                
+                # Resolve text projection path (usually in /usr/local/hailo/resources/npy/)
+                proj_path = Path("/usr/local/hailo/resources/npy/text_projection.npy")
+                if proj_path.exists():
+                    self.text_projection = np.load(proj_path)
+                else:
+                    logger.warning(f"Text projection not found at {proj_path}. Scores may be inaccurate.")
+
                 self.is_loaded = True
-                logger.info("CLIP model loaded successfully")
+                logger.info(f"CLIP models loaded (Softmax: {self.apply_softmax}, Scale: {self.logit_scale})")
                 return True
                 
-            except ImportError as e:
-                logger.error(f"Failed to import CLIP from hailo-apps: {e}")
-                logger.info("Using fallback mock model for development")
-                self._use_mock_model()
-                return True
             except Exception as e:
                 logger.error(f"Failed to load CLIP model: {e}")
                 traceback.print_exc()
@@ -135,7 +195,7 @@ class CLIPModel:
     
     def _use_mock_model(self) -> None:
         """Use a mock model for development/testing."""
-        self.model = None
+        self.image_configured_model = None
         self.is_loaded = True
         logger.warning("Using mock CLIP model (set HAILO_CLIP_MOCK=false to disable)")
     
@@ -155,19 +215,32 @@ class CLIPModel:
         
         try:
             with self.lock:
-                # Resize image
+                # Resize image to dimensions expected by HEF (224x224)
                 image = image.resize((self.image_size, self.image_size))
+                image_array = np.array(image, dtype=np.uint8)
                 
-                if self.model is None:
+                if self.image_configured_model is None:
                     # Mock model: return random embedding
                     return np.random.randn(self.embedding_dim).astype(np.float32)
                 
-                # Actual model inference would go here
-                # This is a placeholder using the hailo-apps CLIP interface
-                image_array = np.array(image, dtype=np.uint8)
-                embedding = self.model.encode_image(image_array)
+                # Run inference
+                bindings = self.image_configured_model.create_bindings()
                 
-                # Normalize embedding
+                # Input buffer from image array
+                input_buffer = np.empty(self.image_infer_model.input().shape, dtype=np.uint8)
+                input_buffer[:] = image_array
+                bindings.input().set_buffer(input_buffer)
+                
+                # Output buffer for embeddings
+                output_buffer = np.empty(self.image_infer_model.output().shape, dtype=np.float32)
+                bindings.output().set_buffer(output_buffer)
+                
+                self.image_configured_model.run([bindings], 1000)
+                
+                # The output is NHWC(1x1x512) for this model
+                embedding = output_buffer.flatten()
+                
+                # Normalize embedding (CLIP requires unit vectors for cosine similarity)
                 embedding = embedding / (np.linalg.norm(embedding) + 1e-8)
                 return embedding.astype(np.float32)
                 
@@ -192,16 +265,41 @@ class CLIPModel:
         
         try:
             with self.lock:
-                if self.model is None:
+                if self.image_configured_model is None:
                     # Mock model: return random embedding
                     return np.random.randn(self.embedding_dim).astype(np.float32)
                 
-                # Actual model inference
-                embedding = self.model.encode_text(text)
+                # 1. Prepare text encoder input using hailo-apps logic
+                prepared = clip_text_utils.prepare_text_for_hailo_encoder(
+                    text=text,
+                    tokenizer=self.tokenizer,
+                    token_embeddings=self.token_embeddings
+                )
+                input_embeddings = prepared['token_embeddings']
+                last_token_positions = prepared['last_token_positions']
+
+                # 2. Run inference on our existing VDevice
+                bindings = self.text_configured_model.create_bindings()
                 
-                # Normalize embedding
-                embedding = embedding / (np.linalg.norm(embedding) + 1e-8)
-                return embedding.astype(np.float32)
+                # Input buffer
+                input_buffer = np.empty(self.text_infer_model.input(self.text_input_layer).shape, dtype=np.float32)
+                input_buffer[:] = input_embeddings
+                bindings.input(self.text_input_layer).set_buffer(input_buffer)
+                
+                # Output buffer
+                output_buffer = np.empty(self.text_infer_model.output(self.text_output_layer).shape, dtype=np.float32)
+                bindings.output(self.text_output_layer).set_buffer(output_buffer)
+                
+                self.text_configured_model.run([bindings], 2000)
+                
+                # 3. Post-process (Projection + L2 Normalization)
+                embedding = clip_text_utils.text_encoding_postprocessing(
+                    encoder_output=output_buffer,
+                    last_token_positions=last_token_positions,
+                    text_projection=self.text_projection
+                )
+                
+                return embedding.flatten().astype(np.float32)
                 
         except Exception as e:
             logger.error(f"Failed to encode text: {e}")
@@ -283,28 +381,41 @@ def create_app(config: CLIPServiceConfig) -> Flask:
                 return jsonify({"error": "Failed to encode image"}), 500
             
             # Encode prompts and compute similarities
-            similarities: List[Tuple[str, float]] = []
+            similarities_list: List[float] = []
             for prompt in prompts:
                 text_embedding = clip_model.encode_text(prompt)
                 if text_embedding is not None:
                     score = clip_model.cosine_similarity(image_embedding, text_embedding)
-                    if score >= threshold:
-                        similarities.append((prompt, float(score)))
+                    similarities_list.append(score)
+                else:
+                    similarities_list.append(-1.0)
             
+            # Apply Softmax if multiple prompts
+            scores = np.array(similarities_list)
+            if clip_model.apply_softmax and len(prompts) > 1:
+                # Scaled Softmax for better differentiation with numerical stability
+                shifted_scores = clip_model.logit_scale * (scores - np.max(scores))
+                exp_scores = np.exp(shifted_scores)
+                scores = exp_scores / np.sum(exp_scores)
+            
+            # Format results
+            results = []
+            for i, prompt in enumerate(prompts):
+                if scores[i] >= threshold:
+                    results.append({"text": prompt, "score": float(scores[i])})
+
             # Sort by score (descending) and take top_k
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            similarities = similarities[:top_k]
+            results.sort(key=lambda x: x["score"], reverse=True)
+            results = results[:top_k]
             
             inference_time_ms = (time.time() - start_time) * 1000
             
-            # Format response
-            classifications = [
-                {"text": text, "score": score, "rank": rank + 1}
-                for rank, (text, score) in enumerate(similarities)
-            ]
+            # Add rank
+            for rank, item in enumerate(results):
+                item["rank"] = rank + 1
             
             return jsonify({
-                "classifications": classifications,
+                "classifications": results,
                 "inference_time_ms": inference_time_ms,
                 "model": clip_model.model_name,
             }), 200

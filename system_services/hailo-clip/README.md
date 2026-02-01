@@ -15,10 +15,12 @@ Deploys CLIP zero-shot image classification as a managed systemd service on Rasp
 
 - Hailo-10H driver installed: `sudo apt install dkms hailo-h10-all`
 - Verify device: `hailortcli fw-control identify`
-- Python YAML support: `sudo apt install python3-yaml`
-- Python image libraries: `sudo apt install python3-pil python3-opencv`
+- Python dependencies: `sudo apt install python3-pip python3-venv`
+- Python packages installed via pip in virtual environment (handled by installer)
 
-The installer will check for the hailo-apps CLIP implementation and provide guidance if missing.
+The installer will create a Python virtual environment in `/opt/hailo-clip/venv` and install required packages from `requirements.txt`.
+
+The installer also vendors the `hailo-apps` submodule into `/opt/hailo-clip/vendor/hailo-apps` so the systemd service does not depend on any particular developer username/home directory.
 
 ## Installation
 
@@ -45,11 +47,13 @@ server:
 
 clip:
   # Model selection
-  model: clip-resnet-50x4
-  embedding_dimension: 640
+  model: clip-vit-b-32
+  embedding_dimension: 512
   device: 0
   image_size: 224
   batch_size: 1
+  apply_softmax: true
+  logit_scale: 100.0
 
 performance:
   worker_threads: 2
@@ -105,6 +109,16 @@ curl -X POST http://localhost:5000/v1/embed/text \
   -H "Content-Type: application/json" \
   -d '{"text": "person wearing uniform"}'
 ```
+
+## Important: Prompt Engineering
+
+CLIP is a **zero-shot classifier**, meaning it compares the image to the specific text you provide. For best results:
+- **Be Descriptive**: Instead of just `"cat"`, use `"a photo of a cat"` or `"a colorful illustration of a cat"`.
+- **Provide Context**: Use templates like `"a person wearing {}"` or `"a scene showing {}"`. 
+  *   *Note: Brackets `{}` are illustrative placeholders. You must replace them with your actual labels (e.g., `"a person wearing a uniform"`) in your code before sending the request. CLIP does not support wildcards; it processes literal strings.*
+- **Why use Templates?**: CLIP was trained on hundreds of millions of natural language captions from the web. It "expects" to see objects in a sentence context (e.g., `"a photo of a cat"`) rather than isolated words (e.g., `"cat"`). Using templates aligns your query with the model's training distribution, leading to much higher confidence scores.
+- **Advanced: Prompt Ensembling**: For maximum robustness, you can generate multiple variations of the same label (e.g., `"a blurry photo of a cat"`, `"a close-up of a cat"`, `"a high-resolution photo of a cat"`) and average their embeddings in your application logic. This "multi-view" text approach helps the model handle diverse lighting, scales, and camera angles.
+- **Avoid Hallucinations**: If you only provide incorrect prompts (e.g., asking for a "tiger" in a photo of a "dog"), CLIP will pick the "least wrong" match. Always include a broad prompt or a "none of the above" style category if unsure.
 
 Check service status:
 
