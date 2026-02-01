@@ -15,9 +15,15 @@ Controls model lifecycle in memory (supported on `/api/chat`, `/api/generate`):
 - **`<seconds>`** — Keep loaded for specified seconds (e.g., `300` = 5 minutes)
 - **Not specified** — Default: 300 seconds (5 minutes)
 
-**Example:**
+**Example (Keep Loaded):**
 ```json
 {"model": "qwen2:1.5b", "prompt": "Hello", "keep_alive": -1}
+```
+
+**Example (Unload):**
+```bash
+curl http://localhost:11434/api/generate -H "Content-Type: application/json" \
+  -d '{"model": "qwen2.5-instruct:1.5b", "prompt": "", "keep_alive": 0}'
 ```
 
 ### options (Model Parameters)
