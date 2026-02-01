@@ -56,11 +56,12 @@ sudo systemctl status hailo-clip.service
 
 5. **hailo-apps CLIP module not available**
    ```bash
-   # Verify hailo-apps is initialized
-   ls -la ../../../hailo-apps/hailo_apps/python/pipeline_apps/clip/
+   # Verify hailo-apps is initialized in the vendor directory
+   ls -la /opt/hailo-clip/vendor/hailo-apps/hailo_apps/python/pipeline_apps/clip/
    
-   # If missing, initialize submodule
+   # If missing, ensure it exists in the main repo and re-run installer
    git submodule update --init --recursive
+   sudo ./install.sh
    ```
 
 **Check detailed logs:**

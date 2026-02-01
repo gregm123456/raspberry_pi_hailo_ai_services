@@ -61,10 +61,10 @@ systemd: hailo-clip.service
 CLIPServiceConfig (YAML loader)
     ↓
 CLIPModel (Hailo CLIP wrapper)
-    ├─ load() → Initialize hailo-apps CLIP
-    ├─ encode_image() → Image → 640-dim embedding
-    ├─ encode_text() → Text → 640-dim embedding
-    └─ cosine_similarity() → Compute matching scores
+    ├─ load() → Initialize shared VDevice for Image/Text encoders
+    ├─ encode_image() → Image → HEF Inference → 512-dim embedding
+    ├─ encode_text() → Tokenize → LUT Embed → HEF Inference → Projection → 512-dim embedding
+    └─ classify() → Compute Cosine Similarity → Scaled Softmax (scale=100)
     ↓
 Flask REST API
     ├─ /health (GET)
@@ -75,10 +75,11 @@ Flask REST API
 
 **Key Features:**
 
-- **Thread-safe embedding:** `CLIPModel.lock` (RLock) serializes model access
+- **Shared VDevice:** Uses a single `hailo_sdk_common.targets.inference_targets.VDevice` shared between the image encoder and text encoder to prevent `HAILO_OUT_OF_PHYSICAL_DEVICES` errors on the Hailo-10H.
+- **Manual Text Pipeline:** Implements a full manual pipeline for text encoding (Tokenization → Embedding LUT → HailoRT Inference → Projection → Normalization) to provide consistent performance and avoid locking the physical device during repeated text encoding.
+- **Scaled Softmax:** Applies a logit scale of 100.0 before Softmax to significantly improve differentiation between prompts, providing high confidence scores (e.g., 99.9% vs 0.1%) for clear matches.
+- **Thread-safe inference:** `CLIPModel.lock` (RLock) serializes model access
 - **Lazy loading:** Model loaded on first request if not pre-loaded
-- **Mock fallback:** If hailo-apps import fails, uses random embeddings (for testing/fallback)
-- **Cosine similarity:** All embeddings normalized; similarity = dot product
 - **Signal handling:** Graceful shutdown on SIGTERM
 
 **Configuration Loading:**
@@ -102,8 +103,8 @@ server:
   port: 5000
 
 clip:
-  model: clip-resnet-50x4
-  embedding_dimension: 640
+  model: clip-vit-b-32
+  embedding_dimension: 512
   device: 0
   image_size: 224
 ```
@@ -151,7 +152,7 @@ clip:
 
 1. **Single device:** `/dev/hailo0` must be present; no multi-device support
 2. **Model persistence:** Models stay loaded in VRAM; unload only on service stop
-3. **Embedding dimension:** Fixed 640-dim vectors (ResNet-50x4 specific)
+3. **Embedding dimension:** Fixed 512-dim vectors (ViT-B/32 specific)
 4. **Image input:** Fixed 224×224 canvas (automatic resize/pad in model)
 5. **Concurrency:** Flask multithreading with lock serializes GPU access
 

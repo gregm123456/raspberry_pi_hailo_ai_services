@@ -64,19 +64,15 @@ $ hailortcli fw-control identify
 If you see output similar to the following, you've successfully installed the NPU and its software dependencies:
 
 ```
-Executing on device: 0000:01:00.0
+Executing on device: 0001:01:00.0
 Identifying board
 Control Protocol Version: 2
-Firmware Version: 4.17.0 (release,app,extended context switch buffer)
+Firmware Version: 5.1.1 (release,app)
 Logger Version: 0
-Board Name: Hailo-8
-Device Architecture: HAILO8L
-Serial Number: HLDDLBB234500054
-Part Number: HM21LB1C2LAE
-Product Name: HAILO-8L AI ACC M.2 B+M KEY
+Device Architecture: HAILO10H
 ```
 
-**Note for AI HAT+ 2:** The AI HAT+ 2 might show `<N/A>` for `Serial Number`, `Part Number`, and `Product Name`. This is expected and doesn't affect functionality.
+**Note for AI HAT+ 2:** The AI HAT+ 2 might show `<N/A>` for `Serial Number`, `Part Number`, and `Product Name`, or simply omit them in the `identify` output. This is expected and doesn't affect functionality.
 
 ### Verify Kernel Logs
 

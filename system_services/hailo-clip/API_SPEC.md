@@ -22,7 +22,7 @@ Check service status and model availability.
   "status": "healthy",
   "service": "hailo-clip",
   "model_loaded": true,
-  "model": "clip-resnet-50x4"
+  "model": "clip-vit-b-32"
 }
 ```
 
@@ -33,6 +33,7 @@ Check service status and model availability.
 **POST** `/v1/classify`
 
 Classify an image against one or more text prompts using cosine similarity.
+The service applies a scaled softmax (logit scale: 100) to ensure high confidence differentiation between prompts.
 
 **Request Body:**
 ```json
@@ -51,7 +52,7 @@ Classify an image against one or more text prompts using cosine similarity.
 
 **Parameters:**
 - `image` (string, required): Base64-encoded image with optional data URI prefix
-- `prompts` (array of strings, required): Text descriptions to match
+- `prompts` (array of strings, required): Text descriptions to match. CLIP performs significantly better with full descriptive sentences (e.g., "a photo of a person") than single keywords.
 - `top_k` (integer, optional): Return top-k matches (default: 3, capped at prompts length)
 - `threshold` (number, optional): Minimum similarity threshold (default: 0.0, range: [0.0, 1.0])
 
@@ -61,27 +62,27 @@ Classify an image against one or more text prompts using cosine similarity.
   "classifications": [
     {
       "text": "person wearing red shirt",
-      "score": 0.87,
+      "score": 0.999,
       "rank": 1
     },
     {
       "text": "person wearing helmet",
-      "score": 0.62,
+      "score": 0.001,
       "rank": 2
     },
     {
       "text": "person on bicycle",
-      "score": 0.55,
+      "score": 0.0,
       "rank": 3
     }
   ],
   "inference_time_ms": 145,
-  "model": "clip-resnet-50x4"
+  "model": "clip-vit-b-32"
 }
 ```
 
 **Response Fields:**
-- `classifications` (array): Ranked matches by similarity
+- `classifications` (array): Ranked matches by similarity (0.0 to 1.0)
 - `inference_time_ms` (number): Total inference latency in milliseconds
 - `model` (string): CLIP model variant used
 
@@ -108,13 +109,13 @@ Get CLIP embedding vector for an image.
 ```json
 {
   "embedding": [0.123, -0.456, 0.789, ...],
-  "dimension": 640,
-  "model": "clip-resnet-50x4"
+  "dimension": 512,
+  "model": "clip-vit-b-32"
 }
 ```
 
 **Response Fields:**
-- `embedding` (array of floats): Normalized 640-dimensional vector
+- `embedding` (array of floats): Normalized 512-dimensional vector
 - `dimension` (integer): Embedding dimension
 - `model` (string): Model used
 
@@ -137,8 +138,8 @@ Get CLIP embedding vector for text.
 ```json
 {
   "embedding": [0.123, -0.456, 0.789, ...],
-  "dimension": 640,
-  "model": "clip-resnet-50x4"
+  "dimension": 512,
+  "model": "clip-vit-b-32"
 }
 ```
 
@@ -158,9 +159,9 @@ curl -X POST http://localhost:5000/v1/classify \
   -d "{
     \"image\": \"data:image/jpeg;base64,${IMAGE_B64}\",
     \"prompts\": [
-      \"person with smile\",
-      \"person with frown\",
-      \"person neutral expression\"
+      \"a photo of a person with a smile\",
+      \"a photo of a person with a frown\",
+      \"a photo of a person with a neutral expression\"
     ],
     \"top_k\": 1
   }" | jq .
@@ -182,12 +183,12 @@ response = requests.post(
     json={
         "image": f"data:image/jpeg;base64,{image_b64}",
         "prompts": [
-            "person with smile",
-            "person with frown",
-            "person neutral expression"
+            "a photo of a person with a smile",
+            "a photo of a person with a frown",
+            "a photo of a person with a neutral expression"
         ],
         "top_k": 1,
-        "threshold": 0.5
+        "threshold": 0.3
     }
 )
 
@@ -207,7 +208,7 @@ curl -X POST http://localhost:5000/v1/embed/image \
 # Text embedding
 curl -X POST http://localhost:5000/v1/embed/text \
   -H "Content-Type: application/json" \
-  -d '{"text": "person wearing red shirt"}' | jq .
+  -d '{"text": "a photo of a person wearing red shirt"}' | jq .
 ```
 
 ---
@@ -238,22 +239,23 @@ Model inference failure:
 
 | Metric | Value |
 |--------|-------|
-| Throughput | ~20-30 fps |
-| Image encoding latency | 33-50ms |
-| Text encoding latency | 5-10ms |
-| Model VRAM | 1-2 GB |
-| Typical response time | 50-150ms (depending on prompt count) |
+| Throughput | ~30-50 fps |
+| Image encoding latency | ~25-40ms |
+| Text encoding latency | ~5-15ms |
+| Model Memory (RAM/VRAM) | ~1-1.5 GB |
+| Typical response time | 40-100ms (depending on prompt count) |
 
 ---
 
 ## Model Details
 
-### CLIP ResNet-50x4
+### CLIP ViT-B/32
 
-- **Embedding dimension:** 640
+- **Embedding dimension:** 512
 - **Image input:** 224×224 RGB
 - **Output:** Normalized L2 embeddings
-- **Similarity metric:** Cosine similarity (dot product of normalized vectors)
+- **Similarity metric:** Cosine similarity scaled by 100 via Softmax
+- **Hardware:** Hailo-10H NPU (Raspberry Pi 5)
 
 ---
 

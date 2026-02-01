@@ -13,24 +13,37 @@ Deploys CLIP zero-shot image classification as a managed systemd service on Rasp
 
 ## Prerequisites
 
-- Hailo-10H driver installed: `sudo apt install dkms hailo-h10-all`
-- Verify device: `hailortcli fw-control identify`
-- Python dependencies: `sudo apt install python3-pip python3-venv`
-- Python packages installed via pip in virtual environment (handled by installer)
-
-The installer will create a Python virtual environment in `/opt/hailo-clip/venv` and install required packages from `requirements.txt`.
-
-The installer also vendors the `hailo-apps` submodule into `/opt/hailo-clip/vendor/hailo-apps` so the systemd service does not depend on any particular developer username/home directory.
+- **Raspberry Pi 5** with **AI HAT+ 2** (Hailo-10H NPU) physically installed.
+- **64-bit Raspberry Pi OS (Trixie)** - Verify with `cat /etc/os-release`.
+- **Hailo-10H system software**:
+  ```bash
+  sudo apt update && sudo apt full-upgrade -y
+  sudo apt install dkms hailo-h10-all
+  sudo reboot
+  ```
+- **Firmware verification**: `hailortcli fw-control identify` should show `HAILO10H` architecture.
+- **Submodule Initialization**: This service depends on `hailo-apps`. Ensure you have initialized submodules:
+  ```bash
+  git submodule update --init --recursive
+  ```
 
 ## Installation
+
+The installer script handles creating a dedicated service user, setting up a Python virtual environment in `/opt/hailo-clip/`, and downloading all required model HEFs and configuration files.
 
 ```bash
 cd system_services/hailo-clip
 sudo ./install.sh
 ```
 
-Optional warmup (pre-loads model):
+The script will:
+1. Vendor `hailo-apps` into the deployment directory.
+2. Create a venv that uses system site-packages (for `hailo_platform`).
+3. Download CLIP ViT-B/32 image and text encoders.
+4. Download tokenizer, projection matrices, and embedding LUTs.
+5. Install and start the `hailo-clip` systemd service.
 
+Optional warmup (pre-loads model to NPU):
 ```bash
 sudo ./install.sh --warmup
 ```
