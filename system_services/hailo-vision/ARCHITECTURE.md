@@ -212,17 +212,24 @@ sudo journalctl -u hailo-vision.service -p err    # Errors only
 5. **No Authentication:** API is open; assumes private network or firewall
 6. **No Rate Limiting:** Implemented at deployment layer if needed (e.g., nginx)
 
-### 11. Future Improvements
+### 11. Deployment Strategy: Vendoring
 
-- **Model Switching:** Support multiple VLM variants at runtime (config-based)
-- **TLS Termination:** Optional reverse proxy (nginx) for HTTPS
-- **Token Caching:** Implement KV-cache for multi-turn conversations
-- **Batch Inference:** Parallel processing of multiple requests
-- **Metrics Export:** Prometheus-compatible `/metrics` endpoint
-- **Performance Tuning:** Quantization options (int8, int4) for lower memory
-- **Streaming Responses:** Token-by-token streaming for realtime UX
+To maintain stability and avoid dependency conflicts on the Raspberry Pi 5, the service uses a **Vendoring Strategy**:
+- **Source Isolation**: The `hailo-apps` core library is cloned into the workspace and copied to `/opt/hailo-vision/vendor/hailo-apps` during installation. 
+- **Permission Management**: By moving code into `/opt`, we ensure the `hailo-vision` system user (a low-privilege service account) can access the scripts without complex permission overrides on user home directories.
+- **Path Patching**: The vendored `hailo_apps/python/core/common/defines.py` is automatically patched during installation to redirect model downloads to `/var/lib/hailo-vision/resources`.
 
-### 12. Resource Monitoring
+### 12. Model Lifecycle
+
+**Pre-compiled HEF Logic**:
+The service uses the `hailo_platform.genai.VLM` API. On first run, it checks for the requested model HEF. If not found in `/var/lib/hailo-vision/resources/models`, it is auto-downloaded by the vendored library.
+
+**NPU Offloading**:
+- **Vision Encoder**: ViT (Visual Transformer) is offloaded entirely to the Hailo-10H.
+- **LLM Engine**: Qwen2 text generation is offloaded to the NPU's dedicated LLM engines.
+- **Warm Start**: The model is loaded once on service start (~60s load time) and kept in memory for zero-latency subsequent responses.
+
+### 13. Resource Monitoring
 
 **Memory Usage:**
 ```bash
@@ -241,3 +248,12 @@ vcgencmd measure_temp                         # Thermal status
 top -p $(pgrep -f hailo-vision)              # Process CPU/memory
 free -h                                       # System memory
 ```
+
+### 14. Future Improvements
+
+- **Model Switching**: Support multiple VLM variants at runtime.
+- **TLS Termination**: Optional reverse proxy (nginx) for HTTPS.
+- **Token Caching**: Implement KV-cache for multi-turn conversations.
+- **Batch Inference**: Parallel processing of multiple requests.
+- **Metrics Export**: Prometheus-compatible `/metrics` endpoint.
+

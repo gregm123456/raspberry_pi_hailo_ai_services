@@ -17,16 +17,15 @@ Supported formats: JPEG, PNG, WebP
 
 ### Generation Options
 
-- `temperature` (float) — Sampling temperature (0.0 = deterministic, 1.0 = normal, 2.0 = very random; default: 0.7)
+- `temperature` (float) — Sampling temperature (0.0 = deterministic, 1.0 = normal; default: 0.7)
 - `max_tokens` (int) — Maximum tokens to generate (default: 200)
 - `top_p` (float) — Nucleus sampling threshold (0.0–1.0; default: 0.9)
-- `seed` (int) — Random seed for reproducible outputs
 
 ---
 
 ## GET /health
 
-Health check endpoint. Returns service status and readiness.
+Returns service status, model loading state, and uptime.
 
 **Response (200 OK):**
 ```json
@@ -34,138 +33,46 @@ Health check endpoint. Returns service status and readiness.
   "status": "ok",
   "model": "qwen2-vl-2b-instruct",
   "model_loaded": true,
-  "memory_usage_mb": 2842,
-  "uptime_seconds": 3600
+  "uptime_seconds": 3600,
+  "hailo_device": "/dev/hailo0"
 }
-```
-
-**Example:**
-```bash
-curl http://localhost:11435/health
-```
-
----
-
-## GET /health/ready
-
-Readiness probe (used by systemd or orchestration).
-
-**Response (200 OK):** Service is ready to accept requests.
-```json
-{"ready": true}
-```
-
-**Response (503 Service Unavailable):** Service is loading or unavailable.
-```json
-{"ready": false, "reason": "model_loading"}
-```
-
-**Example:**
-```bash
-curl http://localhost:11435/health/ready
-```
-
----
-
-## GET /v1/models
-
-Lists available vision models.
-
-**Response (200 OK):**
-```json
-{
-  "data": [
-    {
-      "id": "qwen2-vl-2b-instruct",
-      "object": "model",
-      "created": 1706745600,
-      "owned_by": "hailo"
-    }
-  ],
-  "object": "list"
-}
-```
-
-**Example:**
-```bash
-curl http://localhost:11435/v1/models
 ```
 
 ---
 
 ## POST /v1/chat/completions
 
-Run vision inference with chat-based interface. Accepts images and text prompts for multimodal understanding.
+Standard OpenAI-compatible endpoint for VLM inference.
 
-**Request:**
-```json
-{
-  "model": "qwen2-vl-2b-instruct",
-  "messages": [
-    {
-      "role": "user",
-      "content": [
-        {
-          "type": "image",
-          "image_url": {
-            "url": "data:image/jpeg;base64,/9j/4AAQSk..."
-          }
-        },
-        {
-          "type": "text",
-          "text": "Describe what you see in this image. Who is in it, what are they wearing, and what are they doing?"
-        }
-      ]
-    }
-  ],
-  "temperature": 0.7,
-  "max_tokens": 200,
-  "top_p": 0.9,
-  "stream": false
-}
+**Request Structure:**
+- `model`: (string) Must be `qwen2-vl-2b-instruct`.
+- `messages`: (array) List of message objects.
+  - `content`: (string or array) If array, can contain blocks of `type: "text"` or `type: "image_url"`.
+
+**Special Features:**
+- **Bundled Base64**: In addition to standard `image_url: {"url": "data:..."}`, we support `type: "image"` with a direct `image` or `data` field containing the raw base64 string.
+- **Performance Metadata**: The response includes a `performance` object with `inference_time_ms`.
+
+---
+
+## Deployment Configuration
+
+The service is managed via `/etc/hailo/hailo-vision.yaml`.
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 11435
+
+model:
+  name: "qwen2-vl-2b-instruct"
 ```
 
-**Parameters:**
-- `model` (required) — Must be `"qwen2-vl-2b-instruct"`
-- `messages` (required) — Array of message objects:
-  - `role` (required) — `"system"`, `"user"`, or `"assistant"`
-  - `content` (required) — String (text) or array of content blocks:
-    - `type: "text"` — Text message
-    - `type: "image"` — Image with `image_url` object containing `url` (data URI, HTTP URL, or file path)
-- `temperature` (optional, default: 0.7) — Sampling temperature (0.0–2.0)
-- `max_tokens` (optional, default: 200) — Maximum tokens to generate
-- `top_p` (optional, default: 0.9) — Nucleus sampling (0.0–1.0)
-- `seed` (optional) — Random seed for reproducibility
-- `stream` (optional, default: false) — Stream response tokens
+## Security & Isolation
+- **User**: Runs as `hailo-vision` system user.
+- **Isolaton**: Vendored code in `/opt/hailo-vision/vendor`.
+- **Paths**: Models stored in `/var/lib/hailo-vision/resources`.
 
-**Response (200 OK):**
-```json
-{
-  "id": "chatcmpl-8a5c2d1f",
-  "object": "chat.completion",
-  "created": 1706745600,
-  "model": "qwen2-vl-2b-instruct",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "In this image, I can see a person wearing a red shirt and blue jeans standing in front of a brick building. They appear to be looking at their phone. The building has a classic brick facade, and the setting looks like an urban street."
-      },
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 256,
-    "completion_tokens": 62,
-    "total_tokens": 318
-  },
-  "performance": {
-    "inference_time_ms": 850,
-    "load_time_ms": 120
-  }
-}
-```
 
 **Streaming Response (stream=true):**
 ```

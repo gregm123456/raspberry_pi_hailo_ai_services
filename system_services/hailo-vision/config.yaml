@@ -5,6 +5,15 @@ server:
 model:
   # Model name and variant
   name: "qwen2-vl-2b-instruct"
+  
+  # Optional: HEF model path override
+  # If not specified, will auto-resolve and download via hailo-apps
+  # Options:
+  #   - null: auto-resolve default model for VLM_CHAT_APP
+  #   - "model_name": resolve by name (e.g., "Qwen2-VL-2B-Instruct")
+  #   - "/path/to/model.hef": use explicit path
+  hef_path: null
+  
   # keep_alive controls model lifecycle:
   # -1 = persistent (keep loaded indefinitely)
   # 0 = unload immediately after request

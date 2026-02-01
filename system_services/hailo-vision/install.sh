@@ -15,6 +15,9 @@ RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 DEFAULT_PORT="11435"
 SERVICE_DIR="/opt/hailo-vision"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_vision_server.py"
+HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
+VENDOR_DIR="${SERVICE_DIR}/vendor"
+HAILO_APPS_VENDOR_PATH="${VENDOR_DIR}/hailo-apps"
 
 WARMUP_MODEL=""
 
@@ -120,10 +123,43 @@ create_venv() {
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/venv"
 }
 
+vendor_hailo_apps() {
+    log "Vendoring hailo-apps into ${HAILO_APPS_VENDOR_PATH}"
+    # Ensure source exists
+    if [[ ! -d "${HAILO_APPS_SRC}" ]]; then
+        error "hailo-apps source not found at ${HAILO_APPS_SRC}. Is submodule initialized?"
+        exit 1
+    fi
+
+    rm -rf "${HAILO_APPS_VENDOR_PATH}"
+    mkdir -p "${VENDOR_DIR}"
+
+    # Copy the hailo-apps repo into /opt so the systemd service user doesn't need
+    # access to a developer home directory (e.g., /home/gregm).
+    cp -a "${HAILO_APPS_SRC}" "${VENDOR_DIR}/"
+
+    # Patch resources path in vendored defines.py to use a writable directory
+    # within the service's state directory.
+    sed -i "s|RESOURCES_ROOT_PATH_DEFAULT = \"/usr/local/hailo/resources\"|RESOURCES_ROOT_PATH_DEFAULT = \"/var/lib/hailo-vision/resources\"|g" "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/core/common/defines.py"
+
+    # Fix package structure by adding missing __init__.py files
+    # These are required for proper namespacing and module resolution
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/__init__.py"
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/__init__.py"
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/core/__init__.py"
+
+    # Ensure readable by the service user
+    chown -R root:root "${HAILO_APPS_VENDOR_PATH}"
+    chmod -R u+rwX,go+rX,go-w "${HAILO_APPS_VENDOR_PATH}"
+}
+
 install_requirements() {
     log "Installing Python requirements in venv"
     "${SERVICE_DIR}/venv/bin/pip" install --upgrade pip
     "${SERVICE_DIR}/venv/bin/pip" install -r "${SERVICE_DIR}/requirements.txt"
+
+    log "Installing vendored hailo-apps into venv"
+    "${SERVICE_DIR}/venv/bin/pip" install "${HAILO_APPS_VENDOR_PATH}"
 }
 
 configure_device_permissions() {
@@ -146,7 +182,7 @@ configure_device_permissions() {
 
 create_state_directories() {
     log "Creating service directory structure"
-    mkdir -p /var/lib/hailo-vision/models
+    mkdir -p /var/lib/hailo-vision/resources/models/hailo10h
     mkdir -p /var/lib/hailo-vision/cache
     mkdir -p "${SERVICE_DIR}"
 
@@ -274,6 +310,7 @@ main() {
     configure_device_permissions
     create_state_directories
     create_venv
+    vendor_hailo_apps
     install_requirements
     install_config
 

@@ -4,25 +4,48 @@ Deploys Qwen VLM (Qwen2-VL-2B-Instruct) as a systemd service on Raspberry Pi 5 w
 
 ## Prerequisites
 
-- Hailo-10H driver installed: `sudo apt install dkms hailo-h10-all`
-- Verify device: `hailortcli fw-control identify`
-- Python YAML support: `sudo apt install python3-yaml`
-- HailoRT SDK with VLM bindings (5.2.0+)
+- **Hardware**: Raspberry Pi 5 with AI HAT+ 2 (Hailo-10H NPU)
+- **OS**: 64-bit Raspberry Pi OS (Bookworm or newer)
+- **Drivers**: Hailo-10H kernel driver installed:
+  ```bash
+  sudo apt install dkms hailo-h10-all
+  sudo reboot
+  hailortcli fw-control identify  # Verify installation
+  ```
+- **Dependencies**: Python 3 and basic build tools (installed automatically by `install.sh`)
 
-The installer will check for HailoRT VLM library availability and provide installation guidance if missing.
+## Deployment Strategy
 
-## Installation
+To ensure a robust and isolated deployment, this service uses a **vendoring approach**:
+- The `hailo-apps` core library is vendored into `/opt/hailo-vision/vendor/` during installation.
+- This avoids version conflicts and ensures the `hailo-vision` system user has all necessary permissions and code access without relying on the developer's home directory.
+- A dedicated Python virtual environment is created at `/opt/hailo-vision/venv` with access to system-site-packages (for HailoRT bindings).
 
-```bash
-cd system_services/hailo-vision
-sudo ./install.sh
-```
+## Fresh Installation Steps
 
-Optional warmup (pulls vision model):
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/gregm/raspberry_pi_hailo_ai_services.git
+   cd raspberry_pi_hailo_ai_services/system_services/hailo-vision
+   ```
 
-```bash
-sudo ./install.sh --warmup-model
-```
+2. **Run the Installer**:
+   The installer creates the service user, vendors dependencies, sets up the venv, and installs the systemd unit.
+   ```bash
+   sudo ./install.sh
+   ```
+
+3. **Verify Startup**:
+   The service takes ~60 seconds to load the 2B-parameter model onto the NPU.
+   ```bash
+   # Watch logs for "Service ready"
+   sudo journalctl -u hailo-vision.service -f
+   ```
+
+4. **Test the API**:
+   ```bash
+   curl http://localhost:11435/health
+   ```
 
 ## Configuration
 
@@ -35,125 +58,52 @@ server:
 
 model:
   name: "qwen2-vl-2b-instruct"
-  # keep_alive: -1  # -1 = persistent, 0 = unload after request, N = unload after N seconds (default 300)
+  # keep_alive: -1  # -1 = persistent (default)
 
 generation:
   temperature: 0.7
   max_tokens: 200
-  top_p: 0.9
 ```
 
-After changes, re-run:
+Apply changes by restarting the service: `sudo systemctl restart hailo-vision`.
 
-```bash
-sudo ./install.sh
-```
+## Feature Usage & OpenAI Compatibility
 
-## Basic Usage
+### Vision Querying
+The service implements the OpenAI `/v1/chat/completions` endpoint. This allows using official OpenAI SDKs or `curl` to send multimodal prompts.
 
-Query service status:
+**Supported Content Types:**
+- `text`: Standard text prompts.
+- `image_url`: Standard OpenAI format for base64 data URIs or external links.
+- `image` (Bundled): A proprietary convenience field for sending raw base64 data without the data URI prefix.
 
-```bash
-curl http://localhost:11435/health
-```
+### Client Example (Python OpenAI SDK)
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:11435/v1", api_key="hailo")
 
-### Vision Inference
-
-**Chat-based image analysis (OpenAI-compatible):**
-
-```bash
-curl -X POST http://localhost:11435/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "qwen2-vl-2b-instruct",
-    "messages": [
-      {
+response = client.chat.completions.create(
+    model="qwen2-vl-2b-instruct",
+    messages=[{
         "role": "user",
         "content": [
-          {
-            "type": "image",
-            "image_url": "data:image/jpeg;base64,/9j/4AAQ..."
-          },
-          {
-            "type": "text",
-            "text": "Describe what you see in this image."
-          }
+            {"type": "text", "text": "What is in this image?"},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
         ]
-      }
-    ],
-    "temperature": 0.7,
-    "max_tokens": 200,
-    "stream": false
-  }'
+    }]
+)
+print(response.choices[0].message.content)
 ```
 
-**Response:**
-```json
-{
-  "id": "chatcmpl-123",
-  "object": "chat.completion",
-  "created": 1706745600,
-  "model": "qwen2-vl-2b-instruct",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "In this image, I can see a person wearing a red shirt standing in front of a brick wall. The person appears to be looking down at their phone..."
-      },
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 256,
-    "completion_tokens": 42,
-    "total_tokens": 298
-  }
-}
-```
+### Batch Analysis
+The service also provides a high-level `POST /v1/vision/analyze` endpoint for processing multiple images in a single request with a shared prompt.
 
-Check service status:
+## Resource Management
+- **Models**: Pre-compiled HEFs are auto-downloaded to `/var/lib/hailo-vision/resources`.
+- **NPU Memory**: The model consumes ~3-4GB of Hailo-10H memory.
+- **CPU Isolation**: The service is bounded by systemd slices to prevent stealing resources from the main OS tasks.
 
-```bash
-sudo systemctl status hailo-vision.service
-sudo journalctl -u hailo-vision.service -f
-```
+## Maintenance logs
+- **Logs**: `sudo journalctl -u hailo-vision.service -f`
+- **Clean Uninstall**: `sudo ./uninstall.sh --purge-data`
 
-## Verification
-
-```bash
-sudo ./verify.sh
-```
-
-## Uninstall
-
-```bash
-sudo ./uninstall.sh
-```
-
-Optional cleanup:
-
-```bash
-sudo ./uninstall.sh --remove-user --purge-data
-```
-
-## Documentation
-
-- API reference: [API_SPEC.md](API_SPEC.md)
-- Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
-- Troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-
-## Concurrent Deployment
-
-This service is designed to run alongside `hailo-ollama` and other AI services. Memory budgets:
-- **Vision (Qwen2-VL-2B):** ~2-4 GB
-- **LLM (Qwen2 1.5B):** ~2-4 GB
-- **Total:** ~4-8 GB (within Pi 5 constraints)
-
-Monitor concurrent service performance via:
-
-```bash
-ps aux | grep hailo
-free -h
-vcgencmd measure_temp  # Thermal status
-```

@@ -7,20 +7,45 @@ Compatible with OpenAI Chat Completions API.
 """
 
 import asyncio
+import base64
+import io
 import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 try:
     from aiohttp import web
+    import cv2
+    import numpy as np
+    import requests
     import yaml
+    from PIL import Image
 except ImportError as e:
     print(f"Error: Missing required package: {e}")
-    print("Install with: pip3 install aiohttp pyyaml")
+    print("Install with: pip3 install aiohttp pyyaml pillow numpy opencv-python requests")
+    sys.exit(1)
+
+try:
+    from hailo_platform import VDevice
+    from hailo_platform.genai import VLM
+except ImportError as e:
+    print(f"Error: HailoRT not found: {e}")
+    print("This service requires hailo_platform package.")
+    print("Install with: pip3 install hailo-platform")
+    sys.exit(1)
+
+try:
+    from hailo_apps.python.core.common.core import resolve_hef_path
+    from hailo_apps.python.core.common.defines import VLM_CHAT_APP, SHARED_VDEVICE_GROUP_ID, HAILO10H_ARCH
+except ImportError as e:
+    print(f"Error: hailo-apps not found: {e}")
+    print("This service requires hailo-apps package.")
+    print("Install with: pip3 install hailo-apps or install from source")
     sys.exit(1)
 
 # Configure logging
@@ -41,6 +66,7 @@ class VisionServiceConfig:
         self.server_host = "0.0.0.0"
         self.server_port = 11435
         self.model_name = "qwen2-vl-2b-instruct"
+        self.hef_path = None  # Will be resolved via hailo-apps
         self.keep_alive = -1
         self.temperature = 0.7
         self.max_tokens = 200
@@ -66,6 +92,7 @@ class VisionServiceConfig:
             # Parse model config
             model = config.get('model', {})
             self.model_name = model.get('name', self.model_name)
+            self.hef_path = model.get('hef_path', self.hef_path)
             self.keep_alive = model.get('keep_alive', self.keep_alive)
             
             # Parse generation config
@@ -80,33 +107,134 @@ class VisionServiceConfig:
             logger.error(f"Failed to load config: {e}")
             raise
 
+def decode_image_from_url(image_url: str) -> np.ndarray:
+    """Decode image from URL or base64 data URI."""
+    
+    if image_url.startswith('data:image'):
+        # Handle base64 data URI
+        header, encoded = image_url.split(',', 1)
+        image_data = base64.b64decode(encoded)
+        image = Image.open(io.BytesIO(image_data))
+        return np.array(image)
+    elif image_url.startswith('http://') or image_url.startswith('https://'):
+        # Handle HTTP/HTTPS URL
+        response = requests.get(image_url, timeout=10)
+        response.raise_for_status()
+        image = Image.open(io.BytesIO(response.content))
+        return np.array(image)
+    elif image_url.startswith('file://'):
+        # Handle file:// URI
+        file_path = image_url[7:]  # Remove 'file://'
+        image = Image.open(file_path)
+        return np.array(image)
+    else:
+        # Assume it's a file path
+        image = Image.open(image_url)
+        return np.array(image)
+
+
+def preprocess_image_for_vlm(image_array: np.ndarray, target_size: tuple = (336, 336)) -> np.ndarray:
+    """Preprocess image for VLM inference using central crop.
+    
+    Args:
+        image_array: Input image in any format (RGB, BGR, RGBA, etc.)
+        target_size: Target size (width, height), default (336, 336)
+    
+    Returns:
+        Preprocessed RGB image as uint8 numpy array
+    """
+    # Convert to RGB if needed
+    if len(image_array.shape) == 2:
+        # Grayscale to RGB
+        image_array = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
+    elif len(image_array.shape) == 3:
+        if image_array.shape[2] == 4:
+            # RGBA to RGB
+            image_array = cv2.cvtColor(image_array, cv2.COLOR_RGBA2RGB)
+        elif image_array.shape[2] == 3:
+            # Assume BGR (OpenCV default) - convert to RGB
+            # PIL images are already RGB, but we can't tell, so we check pixel order
+            # Safe approach: always convert from BGR to RGB for consistency
+            image_array = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+    
+    h, w = image_array.shape[:2]
+    target_w, target_h = target_size
+    
+    # Scale to cover the target size (Central Crop strategy)
+    scale = max(target_w / w, target_h / h)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    
+    # Resize the image
+    resized = cv2.resize(image_array, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    
+    # Center crop
+    x_start = (new_w - target_w) // 2
+    y_start = (new_h - target_h) // 2
+    cropped = resized[y_start:y_start+target_h, x_start:x_start+target_w]
+    
+    return cropped.astype(np.uint8)
+
+
 class VisionService:
     """Vision inference service with model lifecycle management."""
     
     def __init__(self, config: VisionServiceConfig):
         self.config = config
-        self.model = None
+        self.vdevice = None
+        self.vlm = None
         self.is_loaded = False
         self.load_time_ms = 0
         self.startup_time = datetime.utcnow()
+        self.hef_path = None
     
     async def initialize(self):
         """Initialize model and prepare for inference."""
         logger.info(f"Initializing model: {self.config.model_name}")
         
         try:
-            # TODO: Implement HailoRT VLM model loading
-            # This is a placeholder for the actual Hailo VLM integration
-            # In production, this would:
-            # 1. Load the model via HailoRT SDK
-            # 2. Initialize NPU device
-            # 3. Verify device memory
+            # Resolve HEF path using hailo-apps resolver
+            logger.info("Resolving HEF model path...")
+            self.hef_path = resolve_hef_path(
+                hef_path=self.config.hef_path,
+                app_name=VLM_CHAT_APP,
+                arch=HAILO10H_ARCH
+            )
             
-            logger.info("Model initialization placeholder (HailoRT VLM)")
+            if self.hef_path is None:
+                raise RuntimeError("Failed to resolve HEF model path. Model may need to be downloaded.")
+            
+            logger.info(f"Using HEF model: {self.hef_path}")
+            
+            # Initialize Hailo device
+            logger.info("Initializing Hailo VDevice...")
+            params = VDevice.create_params()
+            params.group_id = SHARED_VDEVICE_GROUP_ID
+            self.vdevice = VDevice(params)
+            logger.info("Hailo VDevice initialized")
+            
+            # Load VLM model
+            logger.info("Loading VLM model onto NPU...")
+            start_time = time.time()
+            self.vlm = VLM(self.vdevice, str(self.hef_path))
+            self.load_time_ms = int((time.time() - start_time) * 1000)
+            logger.info(f"VLM model loaded successfully in {self.load_time_ms}ms")
+            
             self.is_loaded = True
             
         except Exception as e:
-            logger.error(f"Model initialization failed: {e}")
+            logger.error(f"Model initialization failed: {e}", exc_info=True)
+            # Cleanup on failure
+            if self.vlm:
+                try:
+                    self.vlm.release()
+                except:
+                    pass
+            if self.vdevice:
+                try:
+                    self.vdevice.release()
+                except:
+                    pass
             raise
     
     async def process_image(
@@ -124,39 +252,102 @@ class VisionService:
             raise RuntimeError("Model not loaded")
         
         # Use config defaults if not provided
-        temperature = temperature or self.config.temperature
-        max_tokens = max_tokens or self.config.max_tokens
-        top_p = top_p or self.config.top_p
-        seed = seed or self.config.seed
+        temperature = temperature if temperature is not None else self.config.temperature
+        max_tokens = max_tokens if max_tokens is not None else self.config.max_tokens
+        top_p = top_p if top_p is not None else self.config.top_p
+        seed = seed if seed is not None else self.config.seed
         
         try:
-            # TODO: Implement actual VLM inference
-            # This is a placeholder for HailoRT VLM inference
-            # In production, this would:
             # 1. Load and decode image from URL/base64
-            # 2. Prepare image + text inputs for VLM
-            # 3. Run inference on NPU via HailoRT
-            # 4. Decode output tokens to text
+            logger.debug(f"Decoding image from URL (length: {len(image_url)} chars)")
+            image_array = decode_image_from_url(image_url)
+            logger.debug(f"Image decoded: shape={image_array.shape}, dtype={image_array.dtype}")
+            
+            # 2. Preprocess image for VLM
+            logger.debug("Preprocessing image for VLM...")
+            preprocessed_image = preprocess_image_for_vlm(image_array)
+            logger.debug(f"Image preprocessed: shape={preprocessed_image.shape}")
+            
+            # 3. Prepare prompt in VLM format
+            prompt = [
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": "You are a helpful assistant that analyzes images and answers questions about them."}]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image"},
+                        {"type": "text", "text": text_prompt}
+                    ]
+                }
+            ]
+            
+            # 4. Run inference on NPU via HailoRT
+            logger.debug(f"Running VLM inference with prompt: '{text_prompt}'")
+            start_time = time.time()
+            
+            response_text = self.vlm.generate_all(
+                prompt=prompt,
+                frames=[preprocessed_image],
+                temperature=temperature,
+                seed=seed,
+                max_generated_tokens=max_tokens
+            )
+            
+            inference_time_ms = int((time.time() - start_time) * 1000)
+            
+            # 5. Clean up VLM context for next inference
+            self.vlm.clear_context()
+            
+            # 6. Parse response (remove special tokens)
+            # VLM output may contain special tokens like <|im_end|>
+            cleaned_response = response_text.split("<|im_end|>")[0].strip()
+            
+            # Estimate token count (rough approximation: ~4 chars per token)
+            tokens_generated = len(cleaned_response) // 4
+            
+            logger.info(f"VLM inference completed in {inference_time_ms}ms, generated ~{tokens_generated} tokens")
             
             response = {
-                "content": "[Vision model placeholder response]",
-                "tokens_generated": 5,
-                "inference_time_ms": 450
+                "content": cleaned_response,
+                "tokens_generated": tokens_generated,
+                "inference_time_ms": inference_time_ms
             }
             
             return response
             
         except Exception as e:
-            logger.error(f"Inference failed: {e}")
+            logger.error(f"Inference failed: {e}", exc_info=True)
             raise
     
     async def shutdown(self):
         """Unload model and clean up resources."""
-        if self.model:
-            logger.info("Unloading model")
-            # TODO: Properly unload HailoRT model
-            self.model = None
-            self.is_loaded = False
+        logger.info("Shutting down VLM service...")
+        
+        if self.vlm:
+            try:
+                logger.info("Releasing VLM model...")
+                self.vlm.clear_context()
+                self.vlm.release()
+                logger.info("VLM model released")
+            except Exception as e:
+                logger.warning(f"Error releasing VLM: {e}")
+            finally:
+                self.vlm = None
+        
+        if self.vdevice:
+            try:
+                logger.info("Releasing Hailo VDevice...")
+                self.vdevice.release()
+                logger.info("VDevice released")
+            except Exception as e:
+                logger.warning(f"Error releasing VDevice: {e}")
+            finally:
+                self.vdevice = None
+        
+        self.is_loaded = False
+        logger.info("Shutdown complete")
 
 class APIHandler:
     """HTTP API request handlers."""
@@ -229,20 +420,38 @@ class APIHandler:
         image_url = None
         text_prompt = None
         
+        logger.debug(f"Parsing {len(messages)} messages for content")
         for msg in messages:
             if msg.get("role") == "user":
                 content = msg.get("content", [])
                 if isinstance(content, str):
                     text_prompt = content
+                    logger.debug(f"Found string text prompt: {text_prompt[:50]}...")
                 elif isinstance(content, list):
                     for item in content:
-                        if item.get("type") == "image":
+                        item_type = item.get("type")
+                        if item_type == "image_url":
                             img_url_obj = item.get("image_url", {})
-                            image_url = img_url_obj.get("url") if isinstance(img_url_obj, dict) else img_url_obj
-                        elif item.get("type") == "text":
+                            url = img_url_obj.get("url") if isinstance(img_url_obj, dict) else img_url_obj
+                            if url:
+                                image_url = url
+                                logger.debug(f"Found image_url item: {image_url[:50]}...")
+                        elif item_type == "image":
+                            # Support bundled base64 or source
+                            data = item.get("image") or item.get("data") or item.get("source")
+                            if data:
+                                # If it doesn't have the prefix, add it if it looks like base64
+                                if isinstance(data, str) and not data.startswith('data:'):
+                                    image_url = f"data:image/jpeg;base64,{data}"
+                                else:
+                                    image_url = data
+                                logger.debug(f"Found bundled image item: {image_url[:50]}...")
+                        elif item_type == "text":
                             text_prompt = item.get("text", "")
+                            logger.debug(f"Found text item: {text_prompt[:50]}...")
         
         if not image_url or not text_prompt:
+            logger.warning(f"Incomplete request: image_url={'found' if image_url else 'missing'}, text_prompt={'found' if text_prompt else 'missing'}")
             return web.json_response(
                 {"error": {"message": "Message must contain both image and text", "type": "invalid_request_error"}},
                 status=400
