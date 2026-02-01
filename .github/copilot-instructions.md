@@ -49,6 +49,7 @@ Each service wraps a specific AI capability as a managed systemd service. The **
 - **Testing:** pytest for integration tests; quick manual verification acceptable for art/personal projects
 - **Logging:** Python `logging` module; journald integration via systemd
 - **Services:** Standard library `subprocess` or `systemctl` for management
+- **Deployment:** Python services use isolated venvs in `/opt/hailo-service-name/venv` (see raspberry-pi skill for rationale)
 - **Philosophy:** Favor existing, proven libraries over building from scratch (e.g., use Ollama directly rather than reimplementing inference)
 
 ### Bash

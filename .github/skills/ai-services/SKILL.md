@@ -23,6 +23,18 @@ Benefit: Works with existing client tools, familiar to users, reduces code to wr
 
 *These are personal projects and art installations—reuse over reinvention.*
 
+## Python Runtime Strategy
+
+**For Python-based services:** Use isolated virtual environments in `/opt/hailo-service-name/venv` (see Raspberry Pi skill for detailed rationale and alternatives).
+
+**Why it matters for AI services:**
+- Heavy dependencies: HailoRT Python bindings, OpenCV, NumPy, ML frameworks
+- Version pinning: AI libraries evolve rapidly; lock versions for stability
+- Multiple services: Different services may need incompatible package versions
+- Clean uninstall: Remove entire `/opt/hailo-service-name/` directory
+
+**hailo-ollama exception:** Wraps Ollama binary (not Python); no venv needed.
+
 ## Service Types from hailo-apps
 
 The hailo-apps submodule provides **20+ AI applications** across vision and GenAI domains. Each can be wrapped as a systemd service.

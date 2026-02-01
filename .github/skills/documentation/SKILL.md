@@ -23,6 +23,8 @@ Every service (`system_services/<service-name>/`) must include:
 - Troubleshooting (common issues)
 - Links to detailed docs
 
+**Python services:** Mention deployment approach (venv in /opt) in Prerequisites or Installation section.
+
 **Example:**
 
 ```markdown
@@ -130,6 +132,7 @@ curl -X POST http://localhost:11434/api/chat \
 - Design constraints (Hailo single-access, RAM budget, thermal limits)
 - Component architecture (how service is structured)
 - Deployment model (systemd Type, restart policy)
+- Python runtime strategy (if applicable: venv location, why isolated, dependencies)
 - Resource limits and expected usage
 - Known limitations
 - Future improvements

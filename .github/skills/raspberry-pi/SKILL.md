@@ -125,6 +125,52 @@ sudo usermod -aG hailo,plugdev,dialout hailo
 # If missing: sudo groupadd hailo && sudo chgrp hailo /dev/hailo0 && sudo chmod g+rw /dev/hailo0
 ```
 
+### Python Service Deployment Strategy
+
+**Default approach:** Per-service virtual environment in `/opt`
+
+Python-based Hailo services (e.g., hailo-clip, hailo-vision, hailo-whisper) use isolated virtual environments to:
+- Avoid dependency conflicts with system Python and other services
+- Pin specific package versions for reproducibility
+- Prevent system package manager interference
+- Support services with conflicting Python dependencies
+
+**Standard pattern:**
+```bash
+# Installer creates dedicated venv per service
+python3 -m venv /opt/hailo-service-name/venv
+/opt/hailo-service-name/venv/bin/pip install -r requirements.txt
+
+# systemd unit references venv Python
+ExecStart=/opt/hailo-service-name/venv/bin/python3 /opt/hailo-service-name/service.py
+```
+
+**Why /opt?**
+- Standard FHS location for add-on software packages
+- Isolated from OS updates and apt package management
+- Clear separation from system Python in `/usr`
+- Easy to back up, version, or remove entire service
+
+**Alternative: Packaged binaries (PyInstaller, Nuitka, PEX)**
+
+Use when installation simplicity outweighs build complexity:
+- Single binary deployment (no venv needed)
+- Suitable for shrink-wrapped installations
+- Tradeoffs: larger binary size, more complex build process, harder debugging
+- Consider for services where dependency management is particularly complex
+
+**Not recommended: System Python with pip**
+
+Avoiding system Python prevents:
+- Conflicts with OS-managed packages (apt vs. pip)
+- Breaking system tools that depend on specific Python packages
+- Unexpected behavior after OS upgrades
+
+**Service-specific considerations:**
+- hailo-ollama: Not Python-based; wraps Ollama binary (no venv needed)
+- hailo-clip, hailo-vision: Require HailoRT Python bindings, heavy CV dependencies (use /opt venv)
+- Lightweight services: Can share a common venv if dependencies align (not recommended; isolate by default)
+
 ### Device Access in Services
 
 ```bash
