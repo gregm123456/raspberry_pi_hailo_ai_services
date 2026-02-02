@@ -25,7 +25,7 @@ To ensure a robust and isolated deployment, this service uses a **vendoring appr
 
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/gregm/raspberry_pi_hailo_ai_services.git
+   git clone https://github.com/gregm123456/raspberry_pi_hailo_ai_services.git
    cd raspberry_pi_hailo_ai_services/system_services/hailo-vision
    ```
 
