@@ -84,13 +84,21 @@ preflight_hailo() {
 
 preflight_hailo_ollama() {
     if ! command -v hailo-ollama >/dev/null 2>&1; then
-        error "hailo-ollama not found in PATH."
-        error ""
-        error "Install the Developer Zone Debian package:"
-        error "  https://www.hailo.ai/developer-zone/"
-        error ""
-        error "After installation, verify with: hailortcli fw-control identify"
-        exit 1
+        log "hailo-ollama not found, downloading and installing from Hailo Developer Zone..."
+        local deb_url="https://dev-public.hailo.ai/2025_12/Hailo10/hailo_gen_ai_model_zoo_5.1.1_arm64.deb"
+        local deb_file="/tmp/hailo_gen_ai_model_zoo.deb"
+        if ! wget -q "${deb_url}" -O "${deb_file}"; then
+            error "Failed to download hailo-ollama package from ${deb_url}"
+            error "Install manually from: https://www.hailo.ai/developer-zone/"
+            exit 1
+        fi
+        if ! dpkg -i "${deb_file}"; then
+            error "Failed to install hailo-ollama package"
+            rm -f "${deb_file}"
+            exit 1
+        fi
+        rm -f "${deb_file}"
+        log "hailo-ollama installed successfully"
     fi
 }
 
@@ -266,6 +274,7 @@ parse_args() {
 main() {
     parse_args "$@"
     require_root
+    require_command wget "Install with: sudo apt install wget"
     preflight_hailo
     preflight_hailo_ollama
     check_python_yaml
