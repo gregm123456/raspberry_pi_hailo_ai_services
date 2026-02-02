@@ -1,0 +1,46 @@
+[Unit]
+Description=Hailo Device Manager (Exclusive Device Access & Request Queue)
+Documentation=man:systemd.unit(5) man:systemd.service(5)
+After=network.target
+
+# Ensure this service starts before any services that use it
+Before=hailo-vision.service hailo-ollama.service hailo-face.service hailo-ocr.service hailo-pose.service
+
+[Service]
+Type=simple
+User=hailo-device-mgr
+Group=hailo-device-mgr
+
+# Service executable
+ExecStart=/opt/hailo-device-manager/venv/bin/python3 /opt/hailo-device-manager/hailo_device_manager.py
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Resource limits
+CPUQuota=20%
+MemoryMax=512M
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hailo-device-manager
+
+# Security
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+# Environment
+Environment="PYTHONUNBUFFERED=1"
+Environment="HAILO_DEVICE_SOCKET=/run/hailo/device.sock"
+EnvironmentFile=-/etc/hailo/device-manager.env
+
+# Runtime directory for socket
+RuntimeDirectory=hailo
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

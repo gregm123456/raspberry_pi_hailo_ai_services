@@ -31,17 +31,15 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    from hailo_platform import VDevice
-    from hailo_platform.genai import VLM
+    from device_client import HailoDeviceClient
 except ImportError as e:
-    print(f"Error: HailoRT not found: {e}")
-    print("This service requires hailo_platform package.")
-    print("Install with: pip3 install hailo-platform")
+    print(f"Error: device client not found: {e}")
+    print("Ensure device_client.py is available alongside hailo_vision_server.py")
     sys.exit(1)
 
 try:
     from hailo_apps.python.core.common.core import resolve_hef_path
-    from hailo_apps.python.core.common.defines import VLM_CHAT_APP, SHARED_VDEVICE_GROUP_ID, HAILO10H_ARCH
+    from hailo_apps.python.core.common.defines import VLM_CHAT_APP, HAILO10H_ARCH
 except ImportError as e:
     print(f"Error: hailo-apps not found: {e}")
     print("This service requires hailo-apps package.")
@@ -181,8 +179,7 @@ class VisionService:
     
     def __init__(self, config: VisionServiceConfig):
         self.config = config
-        self.vdevice = None
-        self.vlm = None
+        self.client: Optional[HailoDeviceClient] = None
         self.is_loaded = False
         self.load_time_ms = 0
         self.startup_time = datetime.utcnow()
@@ -205,35 +202,26 @@ class VisionService:
                 raise RuntimeError("Failed to resolve HEF model path. Model may need to be downloaded.")
             
             logger.info(f"Using HEF model: {self.hef_path}")
-            
-            # Initialize Hailo device
-            logger.info("Initializing Hailo VDevice...")
-            params = VDevice.create_params()
-            params.group_id = SHARED_VDEVICE_GROUP_ID
-            self.vdevice = VDevice(params)
-            logger.info("Hailo VDevice initialized")
-            
-            # Load VLM model
-            logger.info("Loading VLM model onto NPU...")
+
+            logger.info("Connecting to device manager...")
+            self.client = HailoDeviceClient()
+            await self.client.connect()
+
+            logger.info("Loading VLM model via device manager...")
             start_time = time.time()
-            self.vlm = VLM(self.vdevice, str(self.hef_path))
+            await self.client.load_model(str(self.hef_path), model_type="vlm_chat")
             self.load_time_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"VLM model loaded successfully in {self.load_time_ms}ms")
+            logger.info("VLM model loaded successfully in %dms", self.load_time_ms)
             
             self.is_loaded = True
             
         except Exception as e:
             logger.error(f"Model initialization failed: {e}", exc_info=True)
             # Cleanup on failure
-            if self.vlm:
+            if self.client:
                 try:
-                    self.vlm.release()
-                except:
-                    pass
-            if self.vdevice:
-                try:
-                    self.vdevice.release()
-                except:
+                    await self.client.disconnect()
+                except Exception:
                     pass
             raise
     
@@ -250,6 +238,8 @@ class VisionService:
         
         if not self.is_loaded:
             raise RuntimeError("Model not loaded")
+        if not self.client:
+            raise RuntimeError("Device manager client not initialized")
         
         # Use config defaults if not provided
         temperature = temperature if temperature is not None else self.config.temperature
@@ -287,18 +277,20 @@ class VisionService:
             logger.debug(f"Running VLM inference with prompt: '{text_prompt}'")
             start_time = time.time()
             
-            response_text = self.vlm.generate_all(
-                prompt=prompt,
-                frames=[preprocessed_image],
-                temperature=temperature,
-                seed=seed,
-                max_generated_tokens=max_tokens
+            response = await self.client.infer(
+                str(self.hef_path),
+                {
+                    "prompt": prompt,
+                    "frames": [encode_tensor(preprocessed_image)],
+                    "temperature": temperature,
+                    "seed": seed,
+                    "max_generated_tokens": max_tokens,
+                },
+                model_type="vlm_chat",
             )
             
-            inference_time_ms = int((time.time() - start_time) * 1000)
-            
-            # 5. Clean up VLM context for next inference
-            self.vlm.clear_context()
+            inference_time_ms = response.get("inference_time_ms")
+            response_text = response.get("result", "")
             
             # 6. Parse response (remove special tokens)
             # VLM output may contain special tokens like <|im_end|>
@@ -324,30 +316,26 @@ class VisionService:
     async def shutdown(self):
         """Unload model and clean up resources."""
         logger.info("Shutting down VLM service...")
-        
-        if self.vlm:
+
+        if self.client:
             try:
-                logger.info("Releasing VLM model...")
-                self.vlm.clear_context()
-                self.vlm.release()
-                logger.info("VLM model released")
+                logger.info("Disconnecting from device manager...")
+                await self.client.disconnect()
             except Exception as e:
-                logger.warning(f"Error releasing VLM: {e}")
+                logger.warning(f"Error disconnecting device client: {e}")
             finally:
-                self.vlm = None
-        
-        if self.vdevice:
-            try:
-                logger.info("Releasing Hailo VDevice...")
-                self.vdevice.release()
-                logger.info("VDevice released")
-            except Exception as e:
-                logger.warning(f"Error releasing VDevice: {e}")
-            finally:
-                self.vdevice = None
+                self.client = None
         
         self.is_loaded = False
         logger.info("Shutdown complete")
+
+
+def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
+    return {
+        "dtype": str(array.dtype),
+        "shape": list(array.shape),
+        "data_b64": base64.b64encode(array.tobytes()).decode("ascii"),
+    }
 
 class APIHandler:
     """HTTP API request handlers."""

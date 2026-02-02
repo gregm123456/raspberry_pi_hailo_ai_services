@@ -15,6 +15,7 @@ RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 DEFAULT_PORT="11435"
 SERVICE_DIR="/opt/hailo-vision"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_vision_server.py"
+DEVICE_MANAGER_CLIENT_SRC="${SCRIPT_DIR}/../../device_manager/device_client.py"
 HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
 VENDOR_DIR="${SERVICE_DIR}/vendor"
 HAILO_APPS_VENDOR_PATH="${VENDOR_DIR}/hailo-apps"
@@ -193,6 +194,10 @@ create_state_directories() {
     cp "${SERVER_SCRIPT}" "${SERVICE_DIR}/"
     cp "${SCRIPT_DIR}/render_config.py" "${SERVICE_DIR}/"
     cp "${SCRIPT_DIR}/requirements.txt" "${SERVICE_DIR}/"
+
+    if [[ -f "${DEVICE_MANAGER_CLIENT_SRC}" ]]; then
+        cp "${DEVICE_MANAGER_CLIENT_SRC}" "${SERVICE_DIR}/device_client.py"
+    fi
     
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}"
     chmod 0755 "${SERVICE_DIR}/hailo_vision_server.py"

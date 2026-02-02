@@ -27,7 +27,7 @@ from PIL import Image
 
 # Hailo Imports
 try:
-    from hailo_platform import VDevice, FormatType, HailoSchedulingAlgorithm
+    from hailo_platform import FormatType
     # We use some utilities from hailo-apps
     from hailo_apps.python.pipeline_apps.clip import clip_text_utils
     from hailo_apps.python.core.common.core import resolve_hef_path
@@ -35,6 +35,12 @@ try:
     HAILO_AVAILABLE = True
 except ImportError:
     HAILO_AVAILABLE = False
+
+try:
+    from device_client import HailoDeviceClient
+    DEVICE_CLIENT_AVAILABLE = True
+except ImportError:
+    DEVICE_CLIENT_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -102,11 +108,8 @@ class CLIPModel:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.vdevice = None
-        self.image_infer_model = None
-        self.image_configured_model = None
-        self.text_infer_model = None
-        self.text_configured_model = None
+        self.device_model_path = None
+        self.model_params = {}  # Store model params for device manager
         self.is_loaded = False
         self.lock = threading.RLock()
         
@@ -127,7 +130,7 @@ class CLIPModel:
     
     def load(self) -> bool:
         """Load CLIP model using HailoRT and hailo-apps utilities."""
-        if not HAILO_AVAILABLE:
+        if not HAILO_AVAILABLE or not DEVICE_CLIENT_AVAILABLE:
             logger.error("Hailo dependencies not installed. Falling back to mock.")
             self._use_mock_model()
             return True
@@ -144,33 +147,27 @@ class CLIPModel:
                 if not image_hef_path or not self.text_hef_path:
                     raise FileNotFoundError("Could not resolve CLIP HEF paths.")
 
-                logger.info(f"Loading Image Encoder: {image_hef_path}")
-                
-                # Setup VDevice with sharing enabled for Pi 5
-                params = VDevice.create_params()
-                # On RPi5/Hailo-10H, we don't use multi_process_service=True in VDevice params.
-                # It's intended for Hailo-15 SoC.
-                params.scheduling_algorithm = HailoSchedulingAlgorithm.ROUND_ROBIN
-                
-                self.vdevice = VDevice(params)
+                logger.info(f"Loading Image Encoder via device manager: {image_hef_path}")
+                self.device_model_path = str(image_hef_path)
                 
                 # Input/Output layer names for text encoder
                 # These are specific to clip_vit_b_32_text_encoder
                 self.text_input_layer = 'clip_vit_b_32_text_encoder/input_layer1'
                 self.text_output_layer = 'clip_vit_b_32_text_encoder/normalization25'
 
-                # 1. Initialize Image Encoder
-                self.image_infer_model = self.vdevice.create_infer_model(str(image_hef_path))
-                self.image_infer_model.input().set_format_type(FormatType.UINT8)
-                self.image_infer_model.output().set_format_type(FormatType.FLOAT32)
-                self.image_configured_model = self.image_infer_model.configure()
-                
-                # 2. Initialize Text Encoder on same VDevice
-                logger.info(f"Loading Text Encoder: {self.text_hef_path}")
-                self.text_infer_model = self.vdevice.create_infer_model(str(self.text_hef_path))
-                self.text_infer_model.input(self.text_input_layer).set_format_type(FormatType.FLOAT32)
-                self.text_infer_model.output(self.text_output_layer).set_format_type(FormatType.FLOAT32)
-                self.text_configured_model = self.text_infer_model.configure()
+                # Initialize CLIP models via device manager
+                self.model_params = {
+                    "image_hef_path": str(image_hef_path),
+                    "text_hef_path": str(self.text_hef_path),
+                    "text_input_layer": self.text_input_layer,
+                    "text_output_layer": self.text_output_layer,
+                    "image_input_format": str(FormatType.UINT8),
+                    "image_output_format": str(FormatType.FLOAT32),
+                    "text_input_format": str(FormatType.FLOAT32),
+                    "text_output_format": str(FormatType.FLOAT32),
+                }
+
+                asyncio.run(self._load_device_model(self.model_params))
 
                 # 3. Load text processing resources
                 logger.info("Loading text processing resources (tokenizer, embeddings, projection)")
@@ -195,7 +192,7 @@ class CLIPModel:
     
     def _use_mock_model(self) -> None:
         """Use a mock model for development/testing."""
-        self.image_configured_model = None
+        self.device_model_path = None
         self.is_loaded = True
         logger.warning("Using mock CLIP model (set HAILO_CLIP_MOCK=false to disable)")
     
@@ -219,26 +216,21 @@ class CLIPModel:
                 image = image.resize((self.image_size, self.image_size))
                 image_array = np.array(image, dtype=np.uint8)
                 
-                if self.image_configured_model is None:
+                if self.device_model_path is None:
                     # Mock model: return random embedding
                     return np.random.randn(self.embedding_dim).astype(np.float32)
-                
-                # Run inference
-                bindings = self.image_configured_model.create_bindings()
-                
-                # Input buffer from image array
-                input_buffer = np.empty(self.image_infer_model.input().shape, dtype=np.uint8)
-                input_buffer[:] = image_array
-                bindings.input().set_buffer(input_buffer)
-                
-                # Output buffer for embeddings
-                output_buffer = np.empty(self.image_infer_model.output().shape, dtype=np.float32)
-                bindings.output().set_buffer(output_buffer)
-                
-                self.image_configured_model.run([bindings], 1000)
-                
-                # The output is NHWC(1x1x512) for this model
-                embedding = output_buffer.flatten()
+
+                response = asyncio.run(
+                    self._device_infer(
+                        {
+                            "mode": "image",
+                            "tensor": encode_tensor(image_array),
+                            "timeout_ms": self.config.get("device_timeout_ms", 5000),
+                        }
+                    )
+                )
+
+                embedding = decode_tensor(response["result"]).flatten()
                 
                 # Normalize embedding (CLIP requires unit vectors for cosine similarity)
                 embedding = embedding / (np.linalg.norm(embedding) + 1e-8)
@@ -265,7 +257,7 @@ class CLIPModel:
         
         try:
             with self.lock:
-                if self.image_configured_model is None:
+                if self.device_model_path is None:
                     # Mock model: return random embedding
                     return np.random.randn(self.embedding_dim).astype(np.float32)
                 
@@ -279,18 +271,16 @@ class CLIPModel:
                 last_token_positions = prepared['last_token_positions']
 
                 # 2. Run inference on our existing VDevice
-                bindings = self.text_configured_model.create_bindings()
-                
-                # Input buffer
-                input_buffer = np.empty(self.text_infer_model.input(self.text_input_layer).shape, dtype=np.float32)
-                input_buffer[:] = input_embeddings
-                bindings.input(self.text_input_layer).set_buffer(input_buffer)
-                
-                # Output buffer
-                output_buffer = np.empty(self.text_infer_model.output(self.text_output_layer).shape, dtype=np.float32)
-                bindings.output(self.text_output_layer).set_buffer(output_buffer)
-                
-                self.text_configured_model.run([bindings], 2000)
+                response = asyncio.run(
+                    self._device_infer(
+                        {
+                            "mode": "text",
+                            "tensor": encode_tensor(input_embeddings),
+                            "timeout_ms": self.config.get("device_timeout_ms", 5000),
+                        }
+                    )
+                )
+                output_buffer = decode_tensor(response["result"])
                 
                 # 3. Post-process (Projection + L2 Normalization)
                 embedding = clip_text_utils.text_encoding_postprocessing(
@@ -309,6 +299,42 @@ class CLIPModel:
     def cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity between two vectors."""
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+
+    async def _load_device_model(self, model_params: Dict[str, Any]) -> None:
+        async with HailoDeviceClient() as client:
+            await client.load_model(
+                self.device_model_path,
+                model_type="clip",
+                model_params=model_params,
+            )
+
+    async def _device_infer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        async with HailoDeviceClient() as client:
+            return await client.infer(
+                self.device_model_path,
+                payload,
+                model_type="clip",
+                model_params=self.model_params,
+            )
+
+
+def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
+    return {
+        "dtype": str(array.dtype),
+        "shape": list(array.shape),
+        "data_b64": base64.b64encode(array.tobytes()).decode("ascii"),
+    }
+
+
+def decode_tensor(payload: Dict[str, Any]) -> np.ndarray:
+    dtype = payload.get("dtype")
+    shape = payload.get("shape")
+    data_b64 = payload.get("data_b64")
+    if not dtype or shape is None or not data_b64:
+        raise ValueError("tensor must include dtype, shape, and data_b64")
+    raw = base64.b64decode(data_b64)
+    array = np.frombuffer(raw, dtype=np.dtype(dtype))
+    return array.reshape(shape)
 
 
 def create_app(config: CLIPServiceConfig) -> Flask:

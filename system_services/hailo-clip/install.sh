@@ -14,6 +14,7 @@ JSON_CONFIG="${ETC_XDG_DIR}/hailo-clip.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 DEFAULT_PORT="5000"
 SERVICE_DIR="/opt/hailo-clip"
+DEVICE_MANAGER_CLIENT_SRC="${SCRIPT_DIR}/../../device_manager/device_client.py"
 HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
 HAILO_APPS_VENDOR_DIR="${SERVICE_DIR}/vendor"
 HAILO_APPS_VENDOR_PATH="${HAILO_APPS_VENDOR_DIR}/hailo-apps"
@@ -207,6 +208,12 @@ create_state_directories() {
     if [[ -f "${SCRIPT_DIR}/requirements.txt" ]]; then
         cp "${SCRIPT_DIR}/requirements.txt" "${SERVICE_DIR}/"
         chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/requirements.txt"
+    fi
+
+    if [[ -f "${DEVICE_MANAGER_CLIENT_SRC}" ]]; then
+        cp "${DEVICE_MANAGER_CLIENT_SRC}" "${SERVICE_DIR}/device_client.py"
+        chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/device_client.py"
+        chmod 0644 "${SERVICE_DIR}/device_client.py"
     fi
 }
 
