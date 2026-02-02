@@ -25,11 +25,13 @@ Modular, persistent system services for leveraging the Hailo-10H NPU acceleratio
 
 This project establishes standardized patterns for wrapping Hailo-accelerated AI capabilities as systemd services.
 
-### Proven Services
-- **hailo-clip** — CLIP image-text embedding model
 
-### First-Draft Services (Untested)
-- **hailo-ollama** — LLM inference service (Ollama-compatible REST API)
+### Working Services
+- **hailo-clip** — CLIP image-text embedding model (production-ready)
+- **hailo-ollama** — LLM inference service (Ollama-compatible REST API, production-ready)
+- **hailo-vision** — Qwen VLM (Qwen2-VL-2B-Instruct) vision-language model (production-ready)
+
+### Draft/Experimental Services
 - **hailo-whisper** — Speech-to-text transcription (Whisper models)
 - **hailo-piper** — Text-to-speech synthesis (Piper TTS)
 - **hailo-ocr** — Optical character recognition (PaddleOCR)
@@ -38,9 +40,8 @@ This project establishes standardized patterns for wrapping Hailo-accelerated AI
 - **hailo-pose** — Pose estimation (YOLOv8 keypoints)
 - **hailo-scrfd** — Specialized face detection (SCRFD)
 - **hailo-florence** — Vision understanding and captioning
-- **hailo-vision** — General vision feature extraction
 
-Each service follows the same deployment patterns, offers idiomatic APIs for its domain, and integrates with systemd for reliable operation. Services marked as "first-draft" have draft installers and require testing before production use.
+Each working service follows the same deployment patterns, offers idiomatic APIs for its domain, and integrates with systemd for reliable operation. Draft/experimental services have draft installers and require further testing before production use.
 
 ## Getting Started
 
