@@ -213,6 +213,39 @@ install_config() {
     python3 "${RENDER_SCRIPT}" --input "${ETC_HAILO_CONFIG}" --output "${JSON_CONFIG}"
 }
 
+resolve_default_model_name() {
+    "${SERVICE_DIR}/venv/bin/python3" - <<'PY' 2>/dev/null
+from hailo_apps.config.config_manager import get_default_model_name
+print(get_default_model_name("vlm_chat", "hailo10h") or "")
+PY
+}
+
+ensure_default_model_downloaded() {
+    local model_name
+    model_name="$(resolve_default_model_name)"
+    if [[ -z "${model_name}" ]]; then
+        warn "Could not resolve default VLM model name; skipping auto-download"
+        return 0
+    fi
+
+    local model_path
+    model_path="/var/lib/hailo-vision/resources/models/hailo10h/${model_name}.hef"
+    if [[ -f "${model_path}" ]]; then
+        log "Default VLM model already present: ${model_path}"
+        return 0
+    fi
+
+    log "Downloading default VLM model: ${model_name}"
+    "${SERVICE_DIR}/venv/bin/python3" -m hailo_apps.installation.download_resources \
+        --group vlm_chat \
+        --arch hailo10h \
+        --resource-type model \
+        --resource-name "${model_name}" \
+        --no-parallel
+
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/lib/hailo-vision/resources
+}
+
 get_config_port() {
     python3 - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
 import yaml
@@ -313,6 +346,7 @@ main() {
     vendor_hailo_apps
     install_requirements
     install_config
+    ensure_default_model_downloaded
 
     local port
     port="$(get_config_port)"

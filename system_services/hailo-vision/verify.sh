@@ -53,8 +53,8 @@ check_directories() {
     log "Checking directories..."
     local dirs=(
         /var/lib/hailo-vision
-        /var/lib/hailo-vision/models
-        /var/lib/hailo-vision/cache
+        /var/lib/hailo-vision/resources
+        /var/lib/hailo-vision/resources/models
         /etc/xdg/hailo-vision
     )
     for dir in "${dirs[@]}"; do
