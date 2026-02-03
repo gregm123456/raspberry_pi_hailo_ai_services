@@ -1,15 +1,36 @@
-# Hailo OCR Service
+# Hailo-10H OCR Service
 
-Deploys PaddleOCR (text detection and recognition) as a systemd service on Raspberry Pi 5 with Hailo-10H, exposing a REST API on port 11436 for document scanning, text extraction, and OCR analysis.
+This service exposes a Hailo-10H accelerated OCR REST API compatible with PaddleOCR-style outputs.
+
+Quick start
+- Install (run installer in this folder): `sudo bash install.sh`
+- Start service: `sudo systemctl start hailo-ocr`
+- Health: `curl http://localhost:11436/health`
+
+Notes
+- Server preprocessing: Images are resized with padding (letterbox) to the model input size on the server (preserves aspect ratio). Clients should send the original image (base64 or file); do not pre-resize or stretch images — the server handles aspect-ratio-preserving resizing and maps detection boxes back to original coordinates.
+- Models: HEF models are downloaded to `/var/lib/hailo-ocr/resources/models/hailo10h/` during installation.
+
+Where to look for more
+- API spec: `system_services/hailo-ocr/API_SPEC.md`
+- Troubleshooting: `system_services/hailo-ocr/TROUBLESHOOTING.md`
+# Hailo-10H Accelerated OCR Service
+
+Deploys NPU-accelerated OCR (text detection and recognition) as a systemd service on Raspberry Pi 5 with Hailo-10H. Uses two-stage HEF models running on the NPU for high throughput and multi-language support.
+
+## Features
+
+- **NPU Accelerated:** Both detection and recognition stages run on the Hailo-10H NPU.
+- **Async Workflow:** Built on aiohttp and Hailo-10H async inference for non-blocking API performance.
+- **Multi-language Support:** Separate HEF models for English and Chinese, selectable via API.
+- **Isolated Deployment:** Uses a dedicated Python virtual environment and vendored hailo-apps for stability.
+- **REST API:** Compatible with standard OCR conventions.
 
 ## Prerequisites
 
 - Hailo-10H driver installed: `sudo apt install dkms hailo-h10-all`
 - Verify device: `hailortcli fw-control identify`
-- Python dependencies: `sudo apt install python3-yaml python3-pillow`
-- PaddleOCR models (downloaded on first run or during warmup)
-
-The installer will check for required Python packages and provide installation guidance if missing.
+- 64-bit Raspberry Pi OS (Trixie or Bookworm)
 
 ## Installation
 
@@ -18,11 +39,18 @@ cd system_services/hailo-ocr
 sudo ./install.sh
 ```
 
-Optional warmup (downloads OCR models):
+Optional warmup (loads models into NPU memory):
 
 ```bash
 sudo ./install.sh --warmup-models
 ```
+
+The installer will:
+1. Create a dedicated `hailo-ocr` system user and group.
+2. Setup a virtual environment in `/opt/hailo-ocr/venv`.
+3. Vendor `hailo-apps` for core Hailo-10H inference logic.
+4. Download optimized HEF models from Hailo S3 buckets.
+5. Install and enable the `hailo-ocr` systemd service.
 
 ## Configuration
 
@@ -34,93 +62,42 @@ server:
   port: 11436
 
 ocr:
-  # Model languages: 'en' for English, 'ch_sim' for Simplified Chinese, etc.
-  languages:
-    - en
-  # Detection model: use_gpu=false for Hailo acceleration (CPU fallback)
-  use_gpu: false
-  # Enable text recognition
-  enable_recognition: true
-  # Confidence thresholds
+  languages: ["en"]
   det_threshold: 0.3
   rec_threshold: 0.5
+  use_corrector: true
 
-processing:
-  # Max image size for processing (0 = no limit)
-  max_image_size: 4096
-  # JPEG quality for internal processing
-  jpeg_quality: 90
-  # Enable caching of OCR results
-  enable_caching: true
-  cache_ttl_seconds: 3600
+hailo_models:
+  detection_hef: "ocr_det.hef"
+  recognition_hefs:
+    en: "ocr.hef"
+    zh: "ocr_chinese.hef"
+  batch_size_rec: 8  # Efficient NPU utilization
 ```
 
 After changes, restart the service:
-
 ```bash
 sudo systemctl restart hailo-ocr
 ```
 
-## Basic Usage
+## Usage
 
-Query service status:
-
+### Health Check
 ```bash
 curl http://localhost:11436/health
 ```
 
-### Text Detection and Recognition
-
-**Extract text from image:**
-
+### OCR Extraction
 ```bash
 curl -X POST http://localhost:11436/v1/ocr/extract \
   -H "Content-Type: application/json" \
   -d '{
-    "image": "data:image/jpeg;base64,/9j/4AAQ...",
-    "languages": ["en"],
-    "enable_recognition": true
-  }'
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "text": "Sample text extracted from image",
-  "regions": [
-    {
-      "bbox": [[10, 20], [100, 20], [100, 50], [10, 50]],
-      "text": "Sample",
-      "confidence": 0.95,
-      "type": "text"
-    }
-  ],
-  "processing_time_ms": 450,
-  "model_version": "paddleocr-2.7.0"
-}
-```
-
-**Batch OCR (multiple images):**
-
-```bash
-curl -X POST http://localhost:11436/v1/ocr/batch \
-  -H "Content-Type: application/json" \
-  -d '{
-    "images": [
-      "data:image/jpeg;base64,/9j/4AAQ...",
-      "data:image/png;base64,iVBORw0KG..."
-    ],
+    "image": "data:image/jpeg;base64,...",
     "languages": ["en"]
   }'
 ```
 
-Check service status:
-
-```bash
-sudo systemctl status hailo-ocr.service
-sudo journalctl -u hailo-ocr.service -f
-```
+See [API_SPEC.md](API_SPEC.md) for full endpoint details.
 
 ## Verification
 
@@ -128,47 +105,18 @@ sudo journalctl -u hailo-ocr.service -f
 sudo ./verify.sh
 ```
 
-## Uninstall
+## Performance
 
-```bash
-sudo ./uninstall.sh
-```
-
-Optional cleanup:
-
-```bash
-sudo ./uninstall.sh --remove-user --purge-data
-```
+- **Throughput:** 3-5 images/second (compared to 1-2 on CPU).
+- **Latency:** ~200-400ms per image (post-warmup).
+- **Resource Usage:** ~2 GB RAM, ~50% CPU (post-processing/IO).
 
 ## Documentation
 
-- API reference: [API_SPEC.md](API_SPEC.md)
-- Architecture: [ARCHITECTURE.md](ARCHITECTURE.md)
-- Troubleshooting: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-
-## Concurrent Deployment
-
-This service is designed to run alongside `hailo-ollama`, `hailo-vision`, and other AI services. Memory budgets:
-- **OCR (PaddleOCR):** ~1-2 GB
-- **LLM (Qwen2 1.5B):** ~2-4 GB
-- **Vision (Qwen2-VL-2B):** ~2-4 GB
-- **Total:** ~5-10 GB (monitor on Pi 5)
-
-Monitor concurrent service performance via:
-
-```bash
-ps aux | grep hailo
-free -h
-vcgencmd measure_temp  # Thermal status
-```
-
-## Performance Notes
-
-- **First request:** ~2-3 seconds (model initialization)
-- **Subsequent requests:** ~200-800 ms per image (resolution dependent)
-- **Typical memory:** 1.5-2 GB with models loaded
-- **Batch processing:** Scales linearly with image count
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Design and resource model.
+- [API_SPEC.md](API_SPEC.md) - Request/response formats.
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md) - Common issues.
 
 ## License
 
-PaddleOCR is distributed under the Apache 2.0 License. See [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) for details.
+This project integrates technologies including PaddleOCR (Apache 2.0) and Hailo-10H NPU infrastructure.

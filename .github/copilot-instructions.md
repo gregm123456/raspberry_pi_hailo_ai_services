@@ -101,6 +101,10 @@ Each service must include:
 - **TROUBLESHOOTING.md** - Common issues, verification steps
 - **ARCHITECTURE.md** - Design decisions, resource model, limitations
 
+## Special note
+
+Refer to me by my name, "Greg", not as "the user".
+
 ---
 
 **Last Updated:** January 2026  

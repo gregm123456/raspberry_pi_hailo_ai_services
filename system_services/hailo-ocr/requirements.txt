@@ -1,0 +1,10 @@
+aiohttp==3.11.11
+pyyaml==6.0.2
+pillow==11.1.0
+numpy==1.26.4
+opencv-python==4.11.0.86
+shapely==2.0.6
+pyclipper==1.3.0.post6
+# symspellpy is removed - it requires editdistpy which has build issues on RPi
+# OcrCorrector is patched out in vendor_hailo_apps() step
+# hailort comes from system-site-packages or install separately

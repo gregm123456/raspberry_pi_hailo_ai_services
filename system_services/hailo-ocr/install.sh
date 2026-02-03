@@ -1,281 +1,249 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Hailo-10H NPU Accelerated OCR Service Installer
+# Philosophy: Pragmatic, modular, and isolated using venv and vendoring.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+# Constants
 SERVICE_NAME="hailo-ocr"
 SERVICE_USER="hailo-ocr"
 SERVICE_GROUP="hailo-ocr"
+INSTALL_DIR="/opt/hailo-ocr"
+DATA_DIR="/var/lib/hailo-ocr"
+RESOURCES_DIR="${DATA_DIR}/resources"
+VENV_DIR="${INSTALL_DIR}/venv"
+VENDOR_DIR="${INSTALL_DIR}/vendor"
+HAILO_APPS_SRC="${REPO_ROOT}/hailo-apps"
+
+# Files
 UNIT_SRC="${SCRIPT_DIR}/hailo-ocr.service"
-UNIT_DEST="/etc/systemd/system/hailo-ocr.service"
-CONFIG_TEMPLATE="${SCRIPT_DIR}/config.yaml"
-ETC_HAILO_CONFIG="/etc/hailo/hailo-ocr.yaml"
-ETC_XDG_DIR="/etc/xdg/hailo-ocr"
-JSON_CONFIG="${ETC_XDG_DIR}/hailo-ocr.json"
-RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
-DEFAULT_PORT="11436"
-SERVER_SCRIPT="${SCRIPT_DIR}/hailo_ocr_server.py"
-INSTALL_TARGET="/usr/local/bin/hailo-ocr-server"
+UNIT_DEST="/etc/systemd/system/${SERVICE_NAME}.service"
+CONFIG_SRC="${SCRIPT_DIR}/config.yaml"
+ETC_CONFIG="/etc/hailo/hailo-ocr.yaml"
+XDG_CONFIG_DIR="/etc/xdg/hailo-ocr"
+JSON_CONFIG="${XDG_CONFIG_DIR}/hailo-ocr.json"
 
 WARMUP_MODELS=""
 
-usage() {
-    cat <<'EOF'
-Usage: sudo ./install.sh [OPTIONS]
+# Logging
+log() { echo -e "\033[0;32m[hailo-ocr]\033[0m $*"; }
+error() { echo -e "\033[0;31m[hailo-ocr] ERROR:\033[0m $*" >&2; exit 1; }
 
-Options:
-  --warmup-models    Download and cache models after install (optional)
-  -h, --help         Show this help
-EOF
-}
-
-log() {
-    echo "[hailo-ocr] $*"
-}
-
-warn() {
-    echo "[hailo-ocr] WARNING: $*" >&2
-}
-
-error() {
-    echo "[hailo-ocr] ERROR: $*" >&2
-}
-
-require_root() {
-    if [[ ${EUID} -ne 0 ]]; then
-        error "This script must be run as root (use: sudo ./install.sh)"
-        exit 1
-    fi
-}
-
-require_command() {
-    local cmd="$1"
-    local hint="$2"
-    if ! command -v "${cmd}" >/dev/null 2>&1; then
-        error "Missing required command: ${cmd}. ${hint}"
-        exit 1
-    fi
-}
-
-check_python_deps() {
-    require_command python3 "Install with: sudo apt install python3"
+# Prerequisites
+check_prerequisites() {
+    log "Checking prerequisites..."
+    if [[ ${EUID} -ne 0 ]]; then error "Must be run as root (use sudo)"; fi
     
-    if ! python3 - <<'PY' >/dev/null 2>&1
-import sys
-try:
-    import yaml
-    import PIL
-    import aiohttp
-    print("OK")
-except ImportError as e:
-    raise
-PY
-    then
-        error "Required Python packages missing."
-        error ""
-        error "Install dependencies with:"
-        error "  sudo apt install python3-yaml python3-pil"
-        error "  pip3 install aiohttp paddleocr"
-        error ""
-        error "Or all at once:"
-        error "  sudo apt install python3-yaml python3-pil && pip3 install aiohttp paddleocr"
-        exit 1
+    if ! command -v hailortcli > /dev/null; then
+        error "hailortcli not found. Please install HailoRT first."
     fi
+    
+    if ! hailortcli fw-control identify > /dev/null 2>&1; then
+        error "Hailo-10H device not detected or driver not loaded."
+    fi
+    
+    log "Hailo-10H detected successfully."
 }
 
-create_user_group() {
+setup_structure() {
+    log "Creating directory structure..."
+    mkdir -p "${INSTALL_DIR}" "${DATA_DIR}" "${RESOURCES_DIR}" "${XDG_CONFIG_DIR}" "/etc/hailo"
+    
     if ! getent group "${SERVICE_GROUP}" >/dev/null; then
-        log "Creating system group ${SERVICE_GROUP}"
         groupadd --system "${SERVICE_GROUP}"
     fi
 
     if ! id "${SERVICE_USER}" >/dev/null 2>&1; then
-        log "Creating system user ${SERVICE_USER}"
-        useradd -r -s /usr/sbin/nologin -d /var/lib/hailo-ocr -g "${SERVICE_GROUP}" "${SERVICE_USER}"
+        useradd -r -s /usr/sbin/nologin -d "${DATA_DIR}" -g "${SERVICE_GROUP}" "${SERVICE_USER}"
+    fi
+    
+    # Add user to NPU device group for access
+    local device_group
+    device_group=$(stat -c '%G' /dev/hailo0)
+    if ! getent group "${device_group}" >/dev/null; then
+        error "Device group '${device_group}' not found. Check Hailo installation/udev rules."
+    fi
+    
+    log "Adding ${SERVICE_USER} to ${device_group} group"
+    usermod -aG "${device_group}" "${SERVICE_USER}"
+}
+
+setup_venv() {
+    log "Setting up virtual environment..."
+    python3 -m venv --system-site-packages "${VENV_DIR}"
+    
+    # Upgrade pip
+    "${VENV_DIR}/bin/pip" install --upgrade pip
+    
+    # Install requirements
+    if [[ -f "${SCRIPT_DIR}/requirements.txt" ]]; then
+        log "Installing requirements from requirements.txt..."
+        "${VENV_DIR}/bin/pip" install -r "${SCRIPT_DIR}/requirements.txt"
     fi
 }
 
-create_state_directories() {
-    log "Creating service directory structure"
-    mkdir -p /var/lib/hailo-ocr/models
-    mkdir -p /var/lib/hailo-ocr/cache
-    mkdir -p /var/lib/hailo-ocr/temp
-
-    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/lib/hailo-ocr
-    chmod -R u+rwX,g+rX,o-rwx /var/lib/hailo-ocr
-}
-
-install_config() {
-    install -d -m 0755 /etc/hailo
-    if [[ ! -f "${ETC_HAILO_CONFIG}" ]]; then
-        log "Installing default config to ${ETC_HAILO_CONFIG}"
-        install -m 0644 "${CONFIG_TEMPLATE}" "${ETC_HAILO_CONFIG}"
-    else
-        log "Config already exists at ${ETC_HAILO_CONFIG} (leaving unchanged)"
-    fi
-
-    install -d -m 0755 "${ETC_XDG_DIR}"
-    log "Rendering JSON config to ${JSON_CONFIG}"
-    python3 "${RENDER_SCRIPT}" --input "${ETC_HAILO_CONFIG}" --output "${JSON_CONFIG}"
-}
-
-install_server_script() {
-    if [[ ! -f "${SERVER_SCRIPT}" ]]; then
-        error "Server script not found: ${SERVER_SCRIPT}"
-        exit 1
-    fi
-
-    log "Installing server script to ${INSTALL_TARGET}"
-    install -m 0755 "${SERVER_SCRIPT}" "${INSTALL_TARGET}"
-}
-
-get_config_port() {
-    python3 - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
-import yaml
+vendor_hailo_apps() {
+    log "Vendoring hailo-apps..."
+    mkdir -p "${VENDOR_DIR}"
+    cp -r "${HAILO_APPS_SRC}" "${VENDOR_DIR}/"
+    
+    # Patch: Remove symspellpy dependency from paddle_ocr_utils
+    log "Patching out symspellpy dependency..."
+    local paddle_ocr_utils="${VENDOR_DIR}/hailo-apps/hailo_apps/python/standalone_apps/paddle_ocr/paddle_ocr_utils.py"
+    "${VENV_DIR}/bin/python3" - "${paddle_ocr_utils}" << 'PATCHEOF'
+import re
 import sys
 
-path = "/etc/hailo/hailo-ocr.yaml"
-try:
-    with open(path, "r", encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
-    server = data.get("server", {}) if isinstance(data, dict) else {}
-    port = server.get("port", 11436)
-    print(int(port))
-except Exception:
-    print(11436)
-PY
-}
+paddle_ocr_utils = sys.argv[1]
 
-warn_if_port_in_use() {
-    local port="$1"
-    if command -v ss >/dev/null 2>&1; then
-        if ss -lnt 2>/dev/null | awk '{print $4}' | grep -q ":${port}$"; then
-            warn "Port ${port} is already in use. Update /etc/hailo/hailo-ocr.yaml if needed."
-        fi
-    fi
-}
+with open(paddle_ocr_utils, 'r') as f:
+    content = f.read()
 
-install_unit() {
-    log "Installing systemd unit to ${UNIT_DEST}"
-    install -m 0644 "${UNIT_SRC}" "${UNIT_DEST}"
+# Remove symspellpy import
+content = re.sub(r'from symspellpy import SymSpell\n', '', content)
 
-    systemctl daemon-reload
-    systemctl enable --now "${SERVICE_NAME}.service"
-}
+# Comment out OcrCorrector class
+lines = content.split('\n')
+result = []
+in_class = False
 
-verify_service() {
-    local port="$1"
+for line in lines:
+    if line.startswith('class OcrCorrector:'):
+        in_class = True
+        result.append('# ' + line)
+    elif in_class:
+        if line and not line[0].isspace() and (line.startswith('class ') or line.startswith('def ')):
+            in_class = False
+            result.append(line)
+        elif line.strip() and not line.strip().startswith('#'):
+            result.append('# ' + line)
+        else:
+            result.append(line)
+    else:
+        result.append(line)
 
-    if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
-        error "Service failed to start. Check logs: journalctl -u ${SERVICE_NAME}.service -n 100 --no-pager"
-        return 1
-    fi
+with open(paddle_ocr_utils, 'w') as f:
+    f.write('\n'.join(result))
 
-    if command -v curl >/dev/null 2>&1; then
-        local attempt
-        for attempt in {1..10}; do
-            if curl -fsS "http://localhost:${port}/health" >/dev/null 2>&1; then
-                log "Health check succeeded on port ${port}"
-                return 0
-            fi
-            sleep 1
-        done
-        warn "Health check failed at http://localhost:${port}/health"
-        warn "Check logs: journalctl -u ${SERVICE_NAME}.service -n 100 --no-pager"
-    else
-        warn "curl not found; skipping HTTP health check"
-    fi
-}
-
-warmup_models() {
-    local port="$1"
-    log "Warmup: downloading and caching models (this may take 2-5 minutes)..."
-    sleep 3  # Give service time to initialize
+print("✓ Patched symspellpy")
+PATCHEOF
     
-    # Create a small test image
-    python3 << 'PY'
-from PIL import Image, ImageDraw
-import base64
-import json
-import urllib.request
-
-img = Image.new('RGB', (200, 100), color='white')
-d = ImageDraw.Draw(img)
-d.text((50, 40), "TEST", fill='black')
-
-# Save to bytes
-import io
-img_bytes = io.BytesIO()
-img.save(img_bytes, format='JPEG')
-img_bytes = img_bytes.getvalue()
-
-# Encode as base64
-b64 = base64.b64encode(img_bytes).decode()
-
-# Send to OCR service
-payload = {
-    "image": f"data:image/jpeg;base64,{b64}",
-    "languages": ["en"]
+    # Install vendored hailo-apps in editable mode
+    log "Installing vendored hailo-apps..."
+    "${VENV_DIR}/bin/pip" install -e "${VENDOR_DIR}/hailo-apps"
 }
+
+download_resources() {
+    log "Downloading HEF models and resources..."
+    
+    # Create models directory with proper permissions first
+    mkdir -p "${RESOURCES_DIR}/models"
+    chmod 755 "${RESOURCES_DIR}"
+    chmod 755 "${RESOURCES_DIR}/models"
+    
+    # Set environment variable to tell hailo-apps where to download
+    export RESOURCES_PATH="${RESOURCES_DIR}"
+    
+    # Download OCR models using hailo-apps (as root for permissions)
+    log "Downloading OCR detection model..."
+    "${VENV_DIR}/bin/python3" -m hailo_apps.installation.download_resources \
+        --arch hailo10h \
+        --group paddle_ocr \
+        --resource-type model \
+        --resource-name ocr_det \
+        --no-parallel || log "Warning: ocr_det download had issues (may retry)"
+    
+    log "Downloading OCR recognition model..."
+    "${VENV_DIR}/bin/python3" -m hailo_apps.installation.download_resources \
+        --arch hailo10h \
+        --group paddle_ocr \
+        --resource-type model \
+        --resource-name ocr \
+        --no-parallel || log "Warning: ocr download had issues (may retry)"
+    
+    # Verify models exist and are readable (they go into hailo10h subdirectory)
+    if [[ ! -f "${RESOURCES_DIR}/models/hailo10h/ocr_det.hef" ]] || [[ ! -f "${RESOURCES_DIR}/models/hailo10h/ocr.hef" ]]; then
+        log "ERROR: OCR HEF models were not downloaded successfully."
+        log "Expected location: ${RESOURCES_DIR}/models/hailo10h/"
+        log "Please ensure the download completed and try: sudo ${VENV_DIR}/bin/python3 -m hailo_apps.installation.download_resources --arch hailo10h --group paddle_ocr --no-parallel"
+        exit 1
+    else
+        log "✓ HEF models downloaded successfully to ${RESOURCES_DIR}/models/hailo10h/"
+    fi
+    
+    # Set final ownership to service user
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${RESOURCES_DIR}"
+    chmod 755 "${RESOURCES_DIR}/models"
+}
+
+install_files() {
+    log "Installing service files..."
+    
+    # 1. Config: Copy YAML config if not already present
+    if [[ ! -f "${ETC_CONFIG}" ]]; then
+        install -m 0644 "${CONFIG_SRC}" "${ETC_CONFIG}"
+    else
+        log "Config ${ETC_CONFIG} already exists, skipping."
+    fi
+    
+    # 2. Render JSON config from YAML
+    log "Rendering JSON config..."
+    mkdir -p "${XDG_CONFIG_DIR}"
+    
+    "${VENV_DIR}/bin/python3" << RENDER_CONFIG
+import yaml
+import json
 
 try:
-    req = urllib.request.Request(
-        "http://localhost:11436/v1/ocr/extract",
-        data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=30) as response:
-        print("Warmup complete")
+    with open("${ETC_CONFIG}", "r") as f:
+        config = yaml.safe_load(f)
+    
+    with open("${JSON_CONFIG}", "w") as f:
+        json.dump(config, f, indent=2)
+    
+    print("✓ Generated ${JSON_CONFIG}")
 except Exception as e:
-    print(f"Warmup failed: {e}")
-PY
+    print(f"ERROR: Failed to render config: {e}")
+    exit(1)
+RENDER_CONFIG
+    
+    # 3. Install server script
+    install -m 0755 "${SCRIPT_DIR}/hailo_ocr_server.py" "${INSTALL_DIR}/hailo_ocr_server.py"
+    
+    # 4. Set permissions
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}" "${DATA_DIR}"
+    chmod 755 "${INSTALL_DIR}"
+    chmod 755 "${DATA_DIR}"
+    
+    # Ensure config is readable
+    chmod 644 "${JSON_CONFIG}"
 }
 
-parse_args() {
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --warmup-models)
-                WARMUP_MODELS="true"
-                shift
-                ;;
-            -h|--help)
-                usage
-                exit 0
-                ;;
-            *)
-                error "Unknown option: $1"
-                usage
-                exit 1
-                ;;
-        esac
-    done
+install_systemd_unit() {
+    log "Installing systemd service unit..."
+    install -m 0644 "${UNIT_SRC}" "${UNIT_DEST}"
+    
+    # Reload systemd
+    systemctl daemon-reload
+    
+    log "Service installed. Enable with: sudo systemctl enable ${SERVICE_NAME}"
+    log "Start with: sudo systemctl start ${SERVICE_NAME}"
 }
 
+# Main execution
 main() {
-    parse_args "$@"
-    require_root
-    check_python_deps
-
-    log "Installing ${SERVICE_NAME} service..."
-
-    create_user_group
-    create_state_directories
-    install_config
-    install_server_script
-
-    local port
-    port="$(get_config_port)"
-    warn_if_port_in_use "${port}"
-
-    install_unit
-    verify_service "${port}"
-
-    if [[ -n "${WARMUP_MODELS}" ]]; then
-        warmup_models "${port}" || warn "Warmup failed; models will load on first request"
-    fi
-
-    log "Install complete. Config: ${ETC_HAILO_CONFIG}"
-    log "Start service: sudo systemctl start ${SERVICE_NAME}.service"
-    log "View logs: sudo journalctl -u ${SERVICE_NAME}.service -f"
+    log "Starting Hailo-10H OCR Service installation..."
+    check_prerequisites
+    setup_structure
+    setup_venv
+    vendor_hailo_apps
+    download_resources
+    install_files
+    install_systemd_unit
+    log "Installation complete!"
 }
 
 main "$@"

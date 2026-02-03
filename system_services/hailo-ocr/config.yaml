@@ -8,15 +8,22 @@ ocr:
   languages:
     - en
   
-  # CPU-based inference (set to false to use GPU if available)
-  use_gpu: false
-  
   # Enable text recognition (character-level output)
   enable_recognition: true
   
   # Confidence thresholds for detection and recognition
   det_threshold: 0.3       # Detection confidence (0.0-1.0)
   rec_threshold: 0.5       # Recognition confidence (0.0-1.0)
+
+hailo_models:
+  detection_hef: "ocr_det.hef"
+  recognition_hefs:
+    en: "ocr.hef"
+    zh: "ocr_chinese.hef"
+  batch_size_det: 1
+  batch_size_rec: 8
+  priority: 0
+  device: "/dev/hailo0"
 
 processing:
   # Maximum image dimension (0 = no limit, practical max ~4096)

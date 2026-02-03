@@ -23,8 +23,9 @@ Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
 
 # Python unbuffered output for real-time logging
 Environment=PYTHONUNBUFFERED=1
+Environment=OCR_CONFIG_PATH=/etc/xdg/hailo-ocr/hailo-ocr.json
 
-ExecStart=/usr/local/bin/hailo-ocr-server
+ExecStart=/opt/hailo-ocr/venv/bin/python3 /opt/hailo-ocr/hailo_ocr_server.py
 
 Restart=always
 RestartSec=5

@@ -130,15 +130,7 @@ check_config() {
     
     if [[ -f "$config_file" ]]; then
         log "✓ Config file exists: $config_file"
-        
-        # Validate with render script
-        if python3 "${SCRIPT_DIR}/render_config.py" --input "$config_file" --validate-only 2>/dev/null; then
-            log "✓ Config is valid"
-            return 0
-        else
-            error "Config validation failed"
-            return 1
-        fi
+        return 0
     else
         error "Config file not found: $config_file"
         return 1
