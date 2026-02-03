@@ -16,9 +16,20 @@ Deploys Piper TTS (Text-to-Speech) as a managed systemd service on Raspberry Pi 
 - Raspberry Pi 5 with 64-bit Raspberry Pi OS (Trixie)
 - Python 3.10+
 - Python dependencies: `python3-yaml`, `python3-numpy`
-- Piper TTS: Auto-installed during setup
+- **Piper TTS 1.3.0** (specific version required - see note below)
 
-No Hailo device required - Piper TTS runs on CPU.
+**No Hailo device required** - Piper TTS runs on CPU.
+
+### ⚠️ Important: Piper TTS Version Compatibility
+
+This service **requires Piper TTS 1.3.0** and will not work correctly with 1.4.0 due to:
+
+- **Breaking API changes:** Version 1.4.0 changed from self-contained wheel to pure Python package
+- **Missing dependencies:** 1.4.0 requires system-wide `espeak-ng` installation (not bundled)
+- **Phoneme bugs:** 1.4.0 has issues with empty phoneme handling causing synthesis failures
+- **Wave format errors:** `wave.Error: # channels not specified` when processing certain inputs
+
+The installer script pins to `piper-tts==1.3.0` to ensure stability. See [this Hailo Community post](https://community.hailo.ai/t/piper-tts-1-4-0-tts-synthesis-playback-failed-channels-not-specified/18701) for technical details.
 
 ## Installation
 

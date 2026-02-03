@@ -4,7 +4,14 @@ Design decisions and system architecture for the Hailo Piper TTS service.
 
 ## Overview
 
-The Hailo Piper TTS service wraps the Piper TTS engine as a persistent systemd service, exposing a REST API for text-to-speech synthesis on Raspberry Pi 5. Unlike other Hailo services, this runs purely on CPU without requiring the Hailo-10H NPU.
+The Hailo Piper TTS service wraps the Piper TTS engine as a persistent systemd service, exposing a REST API for text-to-speech synthesis on Raspberry Pi 5. **Unlike other Hailo services, this runs purely on CPU without requiring the Hailo-10H NPU.**
+
+**⚠️ Important Version Note:** This service requires **Piper TTS 1.3.0** specifically. Version 1.4.0 has breaking changes and compatibility issues:
+- Requires system-wide `espeak-ng` installation (not bundled)
+- Has phoneme handling bugs causing `wave.Error: # channels not specified`
+- Not backwards compatible with 1.3.0's self-contained design
+
+See [Hailo Community: Piper TTS 1.4.0 Issues](https://community.hailo.ai/t/piper-tts-1-4-0-tts-synthesis-playback-failed-channels-not-specified/18701) for details.
 
 ## Design Philosophy
 
@@ -52,6 +59,11 @@ The Hailo Piper TTS service wraps the Piper TTS engine as a persistent systemd s
 - Memory: 200-500MB (model dependent)
 - CPU: 50-80% during synthesis
 - Synthesis speed: 2-5x real-time
+
+**Installation:**
+- **piper-tts version:** Must be pinned to 1.3.0 (see Overview for version compatibility notes)
+- **Dependencies:** 1.3.0 includes bundled `espeakbridge.so` and `espeak-ng-data/` (~13.8 MB wheel)
+- **No NPU required:** Pure CPU inference using ONNX Runtime
 
 ### 3. Configuration Management
 

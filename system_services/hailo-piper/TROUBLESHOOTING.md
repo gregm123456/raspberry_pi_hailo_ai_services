@@ -141,7 +141,30 @@ curl -X POST http://localhost:5002/v1/audio/speech \
 
 ### Common Causes
 
-#### 1. Model Not Loaded
+#### 1. Wrong Piper TTS Version
+
+**Error:** `ImportError: cannot import name 'espeakbridge' from 'piper'`
+
+**Or:** `wave.Error: # channels not specified`
+
+**Cause:** piper-tts 1.4.0 is broken - it changed from self-contained wheel to pure Python package requiring system espeak-ng, and has phoneme handling bugs.
+
+**Check version:**
+```bash
+/opt/hailo-piper/venv/bin/python3 -c "import piper; print(piper.__version__)"
+```
+
+**Should be:** `1.3.0`
+
+**Fix:** Downgrade to working version:
+```bash
+sudo /opt/hailo-piper/venv/bin/pip install piper-tts==1.3.0 --force-reinstall --no-cache-dir
+sudo systemctl restart hailo-piper.service
+```
+
+**Prevention:** The installer pins to `piper-tts==1.3.0` in requirements.txt. See [Hailo Community post](https://community.hailo.ai/t/piper-tts-1-4-0-tts-synthesis-playback-failed-channels-not-specified/18701) for technical details.
+
+#### 2. Model Not Loaded
 
 **Check health endpoint:**
 ```bash

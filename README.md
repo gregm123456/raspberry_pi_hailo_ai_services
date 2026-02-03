@@ -43,6 +43,22 @@ This project establishes standardized patterns for wrapping Hailo-accelerated AI
 
 Each working service follows the same deployment patterns, offers idiomatic APIs for its domain, and integrates with systemd for reliable operation. Draft/experimental services have draft installers and require further testing before production use.
 
+## Runtime Deployment Matrix
+
+| Service | Runtime | Python environment | Model download | NPU Acceleration |
+| --- | --- | --- | --- | --- |
+| hailo-clip | Python service | Dedicated venv in /opt/hailo-clip/venv (installer-managed) | Install-time resource download; optional warmup | ✅ Full (image/text encoders) |
+| hailo-vision | Python service | Dedicated venv in /opt/hailo-vision/venv (installer-managed) | Install-time default model download; optional warmup | ✅ Full (ViT + LLM) |
+| hailo-ollama | Native binary (Ollama) | None | Optional warmup pull/chat after install | ✅ Full (LLM inference) |
+| hailo-whisper | Python service | System Python + apt/pip deps (no venv) | Optional warmup; models load on first use | ✅ Full (encoder/decoder) |
+| hailo-piper | Python service | System Python + pip piper-tts (no venv) | Optional install-time model download | ❌ CPU-only (no NPU) |
+| hailo-ocr | Python service | System Python + pip deps (no venv) | Optional warmup download | ✅ Full (detection + recognition) |
+| hailo-depth | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (depth estimation) |
+| hailo-face | Python service | System Python + apt/pip deps (no venv) | Models load at runtime | ✅ Full (SCRFD + ArcFace) |
+| hailo-pose | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (YOLOv8 keypoints) |
+| hailo-scrfd | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (face detection) |
+| hailo-florence | Python service | System Python + apt/pip deps (no venv) | Model download on first service start | ⚠️ Partial (text encoder/decoder on NPU, vision on CPU) |
+
 ## Getting Started
 
 ### System Setup

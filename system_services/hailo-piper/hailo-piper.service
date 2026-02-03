@@ -24,7 +24,7 @@ Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
 # Python optimization
 Environment=PYTHONUNBUFFERED=1
 
-ExecStart=/usr/bin/python3 /opt/hailo-piper/hailo_piper_service.py
+ExecStart=/opt/hailo-piper/venv/bin/python3 /opt/hailo-piper/hailo_piper_service.py
 
 Restart=always
 RestartSec=5

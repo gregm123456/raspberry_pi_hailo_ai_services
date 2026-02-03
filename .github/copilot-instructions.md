@@ -82,6 +82,8 @@ All AI HAT+ 2 specifics (device naming, PCIe settings) are documented in `refere
 - **Concurrent Services:** Hailo-10H supports multiple services running simultaneously; plan memory budgets accordingly
 - **Systemd Integration:** Use Type=notify or Type=idle for proper process supervision
 - **Logging:** All services log to journald; avoid direct file logging unless necessary
+- **Python Package Management:** Pin exact versions in requirements.txt to avoid upstream breaking changes (e.g., piper-tts 1.4.0 bug)
+- **Model Downloads:** Prefer Hugging Face over GitHub releases for more reliable artifact hosting and versioning
 
 ## Deployment Workflow
 

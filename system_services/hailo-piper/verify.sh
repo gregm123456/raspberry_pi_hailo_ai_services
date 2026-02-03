@@ -13,7 +13,7 @@ error() {
 }
 
 get_config_port() {
-    python3 - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
+    /opt/hailo-piper/venv/bin/python3 - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
 import yaml
 path = "/etc/hailo/hailo-piper.yaml"
 try:

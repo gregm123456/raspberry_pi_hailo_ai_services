@@ -16,6 +16,8 @@ DEFAULT_PORT="5002"
 SERVICE_DIR="/opt/hailo-piper"
 MODEL_DIR="/var/lib/hailo-piper/models"
 DEFAULT_MODEL="en_US-lessac-medium"
+REQUIREMENTS_SRC="${SCRIPT_DIR}/requirements.txt"
+PYTHON_BIN="python3"
 
 usage() {
     cat <<'EOF'
@@ -23,7 +25,8 @@ Usage: sudo ./install.sh [OPTIONS]
 
 Options:
   --download-model  Download the default Piper TTS model
-  --model NAME      Specify model to download (default: en_US-lessac-medium)
+    --model NAME      Specify model name (default: en_US-lessac-medium)
+    --model-url URL   Full model URL (used for non-default voices)
   -h, --help        Show this help
 EOF
 }
@@ -57,25 +60,22 @@ require_command() {
 }
 
 check_python_requirements() {
-    require_command python3 "Install with: sudo apt install python3"
-    if ! python3 - <<'PY' >/dev/null 2>&1
-import yaml
-import numpy
-PY
-    then
-        error "Missing required Python packages. Install with:"
-        error "  sudo apt install python3-yaml python3-numpy"
+    require_command "${PYTHON_BIN}" "Install with: sudo apt install python3 python3-venv"
+    if ! "${PYTHON_BIN}" -m venv --help >/dev/null 2>&1; then
+        error "${PYTHON_BIN}-venv is required. Install with: sudo apt install python3-venv"
+        exit 1
+    fi
+}
+
+check_build_tools() {
+    log "Checking for build tools required to compile piper-phonemize..."
+    
+    if ! command -v gcc >/dev/null 2>&1; then
+        error "gcc not found. Install with: sudo apt install build-essential python3-dev"
         exit 1
     fi
     
-    # Check for piper-tts
-    if ! python3 -c "import piper" >/dev/null 2>&1; then
-        warn "piper-tts not installed. Installing now..."
-        pip3 install piper-tts --break-system-packages || {
-            error "Failed to install piper-tts. Try manually: pip3 install piper-tts"
-            exit 1
-        }
-    fi
+    log "✓ Build tools available"
 }
 
 create_user_group() {
@@ -104,14 +104,62 @@ create_state_directories() {
         chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/hailo_piper_service.py"
         chmod 0755 "${SERVICE_DIR}/hailo_piper_service.py"
     fi
+
+    if [[ -f "${REQUIREMENTS_SRC}" ]]; then
+        cp "${REQUIREMENTS_SRC}" "${SERVICE_DIR}/"
+        chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/requirements.txt"
+    fi
+}
+
+create_venv() {
+    log "Creating Python virtual environment (isolated, no system site packages)"
+    rm -rf "${SERVICE_DIR}/venv"
+    "${PYTHON_BIN}" -m venv "${SERVICE_DIR}/venv"
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/venv"
+}
+
+install_requirements() {
+    if [[ ! -f "${SERVICE_DIR}/requirements.txt" ]]; then
+        error "requirements.txt not found in ${SERVICE_DIR}"
+        exit 1
+    fi
+
+    log "Installing Python requirements in venv (this may take 2-5 minutes; piper-phonemize builds from source)"
+    "${SERVICE_DIR}/venv/bin/pip" install --upgrade pip setuptools wheel
+    
+    # Install with --no-cache-dir to save space and force fresh build
+    if ! "${SERVICE_DIR}/venv/bin/pip" install --no-cache-dir -r "${SERVICE_DIR}/requirements.txt"; then
+        error "Failed to install requirements. Check logs above."
+        error "Common issues:"
+        error "  - piper-phonemize build failure: ensure gcc, make, python3-dev are installed"
+        error "    Fix: sudo apt install build-essential python3-dev"
+        exit 1
+    fi
 }
 
 download_piper_model() {
     local model_name="$1"
-    local model_url="https://github.com/rhasspy/piper/releases/latest/download/${model_name}.onnx"
-    local json_url="https://github.com/rhasspy/piper/releases/latest/download/${model_name}.onnx.json"
+    local model_url=""
+    local json_url=""
     
     log "Downloading Piper TTS model: ${model_name}"
+
+    if [[ -n "${MODEL_URL:-}" ]]; then
+        model_url="${MODEL_URL}"
+    elif [[ "${model_name}" == "${DEFAULT_MODEL}" ]]; then
+        model_url="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium/${model_name}.onnx?download=true"
+    else
+        error "Model URL not specified for ${model_name}. Use --model-url to provide a full URL."
+        return 1
+    fi
+
+    if [[ "${model_url}" == *".onnx?"* ]]; then
+        json_url="${model_url/.onnx?/.onnx.json?}"
+    elif [[ "${model_url}" == *".onnx" ]]; then
+        json_url="${model_url/.onnx/.onnx.json}"
+    else
+        json_url="${model_url}.json"
+    fi
     
     if [[ -f "${MODEL_DIR}/${model_name}.onnx" ]]; then
         log "Model already exists at ${MODEL_DIR}/${model_name}.onnx"
@@ -154,11 +202,11 @@ install_config() {
 
     install -d -m 0755 "${ETC_XDG_DIR}"
     log "Rendering JSON config to ${JSON_CONFIG}"
-    python3 "${RENDER_SCRIPT}" --input "${ETC_HAILO_CONFIG}" --output "${JSON_CONFIG}"
+    "${SERVICE_DIR}/venv/bin/python3" "${RENDER_SCRIPT}" --input "${ETC_HAILO_CONFIG}" --output "${JSON_CONFIG}"
 }
 
 get_config_port() {
-    python3 - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
+    "${SERVICE_DIR}/venv/bin/python3" - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
 import yaml
 import sys
 
@@ -189,6 +237,7 @@ install_unit() {
 
     systemctl daemon-reload
     systemctl enable --now "${SERVICE_NAME}.service"
+    systemctl restart "${SERVICE_NAME}.service"
 }
 
 verify_service() {
@@ -226,6 +275,10 @@ parse_args() {
                 MODEL_NAME="$2"
                 shift 2
                 ;;
+            --model-url)
+                MODEL_URL="$2"
+                shift 2
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -242,13 +295,17 @@ parse_args() {
 main() {
     local DOWNLOAD_MODEL="false"
     local MODEL_NAME="${DEFAULT_MODEL}"
+    local MODEL_URL=""
     parse_args "$@"
 
     require_root
     check_python_requirements
+    check_build_tools
 
     create_user_group
     create_state_directories
+    create_venv
+    install_requirements
     
     # Download model if requested
     if [[ "${DOWNLOAD_MODEL}" == "true" ]]; then

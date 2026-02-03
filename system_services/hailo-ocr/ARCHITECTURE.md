@@ -6,11 +6,13 @@ Deploy PaddleOCR (text detection and recognition) as a managed systemd service o
 
 ## Constraints
 
-- **Device access:** `/dev/hailo0` available but not directly used by PaddleOCR (CPU inference with optional ONNX runtime acceleration)
-- **RAM budget:** ~1-2 GB for PaddleOCR models; total Pi 5 available is 5-6 GB
-- **Thermals:** CPU throttles near 80°C; sustained OCR workloads may reduce throughput
-- **Concurrency:** Can run alongside `hailo-ollama`, `hailo-vision` with proper memory budgeting
-- **Model Loading:** Lazy load on first request (~2-3s); subsequent requests <<1s
+- **Device access:** `/dev/hailo0` required; PaddleOCR detection and recognition models are fully accelerated on Hailo-10H NPU
+- **NPU Memory:** ~1-2 GB for PaddleOCR HEF models on Hailo VRAM; total Pi 5 RAM ~5-6 GB
+- **Thermals:** Moderate thermal impact from NPU inference; sustained OCR workloads monitored
+- **Concurrency:** Can run alongside `hailo-ollama`, `hailo-vision` with proper memory budgeting on NPU
+- **Model Loading:** HEF models loaded on first request (~2-3s); subsequent requests <<1s
+
+**NPU Acceleration Confirmed:** Per [Hailo Community documentation](https://community.hailo.ai/t/paddleocr-text-detection-recognition/16917), this implementation uses a "two-stage OCR pipeline accelerated by Hailo-8 and Hailo-10H devices" with both text detection (HEF 1) and text recognition (HEF 2) running on the NPU via HailoRT inference.
 
 ## Components
 
@@ -270,7 +272,7 @@ vcgencmd measure_temp                      # Thermal status (RPi)
 
 ### 14. Integration Notes
 
-- **Hailo Device:** Not directly used; PaddleOCR uses CPU. Can share /dev/hailo0 with other services.
-- **Model Storage:** All models stored in `/var/lib/hailo-ocr/models/` (~500 MB per language)
+- **Hailo Device:** Fully NPU-accelerated; PaddleOCR detection and recognition HEF models run on `/dev/hailo0`. Shares NPU with other services.
+- **Model Storage:** All HEF models stored in `/var/lib/hailo-ocr/models/` (~500 MB per language)
 - **Idempotent Config:** Multiple config updates safe; just restart service
-- **Horizontal Scaling:** Can run multiple OCR services on same Pi with different ports (11436, 11437, etc.)
+- **Horizontal Scaling:** Can run multiple OCR services on same Pi with different ports (11436, 11437, etc.), subject to NPU memory limits
