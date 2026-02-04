@@ -6,12 +6,12 @@ Speech-to-text transcription service powered by Whisper on Hailo-10H NPU for Ras
 
 `hailo-whisper` provides a REST API for speech-to-text transcription using Whisper models accelerated by the Hailo-10H NPU. The service exposes an OpenAI-compatible Whisper API for seamless integration with existing applications.
 
-**Key Features:**
+Key features:
 - OpenAI Whisper API-compatible endpoints
 - Persistent model loading (low-latency repeat inference)
 - Multiple audio format support (wav, mp3, ogg, flac, webm)
 - Multiple output formats (json, verbose_json, text, srt, vtt)
-- Voice Activity Detection (VAD) filtering
+- Optional VAD-style trimming
 - Automatic language detection or forced language
 
 ## System Requirements
@@ -21,7 +21,7 @@ Speech-to-text transcription service powered by Whisper on Hailo-10H NPU for Ras
 - Python 3.10+
 - Hailo driver installed (`hailo-h10-all`)
 - HailoRT Python bindings
-- aiohttp, PyYAML
+- ffmpeg (for audio decoding)
 
 ## Installation
 
@@ -32,9 +32,15 @@ cd /home/gregm/raspberry_pi_hailo_ai_services/system_services/hailo-whisper
 sudo ./install.sh
 ```
 
-### Installation with Model Warmup
+This will:
+- Create `hailo-whisper` system user and group
+- Install service to `/opt/hailo-whisper/` (venv + vendored hailo-apps)
+- Install systemd unit to `/etc/systemd/system/hailo-whisper.service`
+- Create config at `/etc/hailo/hailo-whisper.yaml`
+- Download Whisper resources into `/var/lib/hailo-whisper/resources`
+- Start and enable the service
 
-Load the model immediately after installation:
+### Installation with Model Warmup
 
 ```bash
 sudo ./install.sh --warmup-model
@@ -42,19 +48,8 @@ sudo ./install.sh --warmup-model
 
 ### Verification
 
-Verify the installation:
-
 ```bash
 ./verify.sh
-```
-
-Expected output:
-```
-[verify] ✓ Service is enabled and active
-[verify] ✓ Configuration files present
-[verify] ✓ Permissions configured correctly
-[verify] ✓ Health endpoint responding
-[verify] ✓ Models endpoint responding
 ```
 
 ## Configuration
@@ -64,12 +59,12 @@ Edit `/etc/hailo/hailo-whisper.yaml`:
 ```yaml
 server:
   host: 0.0.0.0
-  port: 11436
+  port: 11437
 
 model:
-  name: "whisper-small"
-  variant: "int8"
-  keep_alive: -1  # Persistent model loading
+  name: "Whisper-Base"
+  variant: "base"
+  keep_alive: -1
 
 transcription:
   language: "en"  # null for auto-detect
@@ -80,6 +75,7 @@ transcription:
 
 storage:
   cache_dir: "/var/lib/hailo-whisper/cache"
+  resources_dir: "/var/lib/hailo-whisper/resources"
 
 resource_limits:
   memory_max: "3G"
@@ -89,7 +85,7 @@ resource_limits:
 After editing configuration:
 
 ```bash
-sudo python3 /usr/lib/hailo-whisper/render_config.py \
+sudo /opt/hailo-whisper/venv/bin/python3 /opt/hailo-whisper/render_config.py \
   --input /etc/hailo/hailo-whisper.yaml \
   --output /etc/xdg/hailo-whisper/hailo-whisper.json
 sudo systemctl restart hailo-whisper
@@ -97,12 +93,14 @@ sudo systemctl restart hailo-whisper
 
 ## Usage
 
+All transcription requests must use `multipart/form-data` uploads following the [OpenAI Whisper API specification](https://platform.openai.com/docs/api-reference/audio/createTranscription). Raw audio payloads are not supported.
+
 ### Basic Transcription
 
 ```bash
-curl -X POST http://localhost:11436/v1/audio/transcriptions \
+curl -X POST http://localhost:11437/v1/audio/transcriptions \
   -F file="@audio.mp3" \
-  -F model="whisper-small"
+  -F model="Whisper-Base"
 ```
 
 Response:
@@ -112,53 +110,39 @@ Response:
 }
 ```
 
+### Streaming from stdin (no local file required)
+
+```bash
+ffmpeg -i video.mp4 -f mp3 - | \
+  curl -X POST http://localhost:11437/v1/audio/transcriptions \
+    -F file="@-;filename=audio.mp3" \
+    -F model="Whisper-Base"
+```
+
 ### Verbose Output with Timestamps
 
 ```bash
-curl -X POST http://localhost:11436/v1/audio/transcriptions \
+curl -X POST http://localhost:11437/v1/audio/transcriptions \
   -F file="@audio.mp3" \
-  -F model="whisper-small" \
+  -F model="Whisper-Base" \
   -F response_format="verbose_json"
-```
-
-Response:
-```json
-{
-  "task": "transcribe",
-  "language": "en",
-  "duration": 2.5,
-  "text": "Hello, this is a test transcription.",
-  "segments": [
-    {
-      "id": 0,
-      "start": 0.0,
-      "end": 2.5,
-      "text": "Hello, this is a test transcription.",
-      "tokens": [1, 2, 3, 4, 5],
-      "temperature": 0.0,
-      "avg_logprob": -0.5,
-      "compression_ratio": 1.2,
-      "no_speech_prob": 0.05
-    }
-  ]
-}
 ```
 
 ### SRT Subtitle Format
 
 ```bash
-curl -X POST http://localhost:11436/v1/audio/transcriptions \
+curl -X POST http://localhost:11437/v1/audio/transcriptions \
   -F file="@audio.mp3" \
-  -F model="whisper-small" \
+  -F model="Whisper-Base" \
   -F response_format="srt"
 ```
 
 ### Force Language
 
 ```bash
-curl -X POST http://localhost:11436/v1/audio/transcriptions \
+curl -X POST http://localhost:11437/v1/audio/transcriptions \
   -F file="@audio.mp3" \
-  -F model="whisper-small" \
+  -F model="Whisper-Base" \
   -F language="es"
 ```
 
@@ -167,23 +151,29 @@ curl -X POST http://localhost:11436/v1/audio/transcriptions \
 ```python
 import requests
 
-url = "http://localhost:11436/v1/audio/transcriptions"
+url = "http://localhost:11437/v1/audio/transcriptions"
 
+# From local file
 with open("audio.mp3", "rb") as f:
     files = {"file": f}
     data = {
-        "model": "whisper-small",
+        "model": "Whisper-Base",
         "language": "en",
         "response_format": "verbose_json"
     }
     response = requests.post(url, files=files, data=data)
     result = response.json()
     print(result["text"])
+
+# From in-memory bytes (no file on disk)
+import io
+audio_bytes = get_audio_from_somewhere()  # bytes object
+files = {"file": ("audio.mp3", io.BytesIO(audio_bytes), "audio/mpeg")}
+data = {"model": "Whisper-Base"}
+response = requests.post(url, files=files, data=data)
 ```
 
 ## Service Management
-
-### Start/Stop
 
 ```bash
 sudo systemctl start hailo-whisper
@@ -197,23 +187,17 @@ sudo systemctl restart hailo-whisper
 sudo journalctl -u hailo-whisper -f
 ```
 
-### Check Status
-
-```bash
-systemctl status hailo-whisper
-```
-
 ### Health Check
 
 ```bash
-curl http://localhost:11436/health
+curl http://localhost:11437/health
 ```
 
 Response:
 ```json
 {
   "status": "ok",
-  "model": "whisper-small-int8",
+  "model": "Whisper-Base",
   "model_loaded": true,
   "uptime_seconds": 3600,
   "transcriptions_processed": 42

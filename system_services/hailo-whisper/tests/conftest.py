@@ -11,7 +11,7 @@ from pathlib import Path
 @pytest.fixture(scope="session")
 def hailo_whisper_url():
     """Base URL for hailo-whisper service."""
-    return "http://localhost:11436"
+    return "http://localhost:11437"
 
 
 @pytest.fixture(scope="session")

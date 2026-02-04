@@ -67,7 +67,7 @@ class TestTranscriptionEndpoint:
         """Test transcription with WAV file and JSON response."""
         with open(test_audio_wav, "rb") as f:
             files = {"file": f}
-            data = {"model": "whisper-small"}
+            data = {"model": "Whisper-Base"}
             
             response = requests.post(
                 f"{hailo_whisper_url}/v1/audio/transcriptions",
@@ -85,7 +85,7 @@ class TestTranscriptionEndpoint:
         with open(test_audio_mp3, "rb") as f:
             files = {"file": f}
             data = {
-                "model": "whisper-small",
+                "model": "Whisper-Base",
                 "response_format": "verbose_json"
             }
             
@@ -111,7 +111,7 @@ class TestTranscriptionEndpoint:
         with open(test_audio_wav, "rb") as f:
             files = {"file": f}
             data = {
-                "model": "whisper-small",
+                "model": "Whisper-Base",
                 "response_format": "text"
             }
             
@@ -122,7 +122,7 @@ class TestTranscriptionEndpoint:
             )
         
         assert response.status_code == 200
-        assert response.headers["content-type"] == "text/plain"
+        assert response.headers["content-type"].startswith("text/plain")
         assert isinstance(response.text, str)
     
     def test_transcription_srt_format(self, hailo_whisper_url, service_running, test_audio_wav):
@@ -130,7 +130,7 @@ class TestTranscriptionEndpoint:
         with open(test_audio_wav, "rb") as f:
             files = {"file": f}
             data = {
-                "model": "whisper-small",
+                "model": "Whisper-Base",
                 "response_format": "srt"
             }
             
@@ -141,7 +141,7 @@ class TestTranscriptionEndpoint:
             )
         
         assert response.status_code == 200
-        assert response.headers["content-type"] == "text/plain"
+        assert response.headers["content-type"].startswith("text/plain")
         
         # Check SRT format structure (basic validation)
         text = response.text
@@ -152,7 +152,7 @@ class TestTranscriptionEndpoint:
         with open(test_audio_wav, "rb") as f:
             files = {"file": f}
             data = {
-                "model": "whisper-small",
+                "model": "Whisper-Base",
                 "language": "en"
             }
             
@@ -168,7 +168,7 @@ class TestTranscriptionEndpoint:
     
     def test_transcription_missing_file(self, hailo_whisper_url, service_running):
         """Test transcription without file field returns 400."""
-        data = {"model": "whisper-small"}
+        data = {"model": "Whisper-Base"}
         response = requests.post(
             f"{hailo_whisper_url}/v1/audio/transcriptions",
             data=data
@@ -203,15 +203,35 @@ class TestErrorHandling:
         response = requests.get(f"{hailo_whisper_url}/invalid/endpoint")
         assert response.status_code == 404
     
-    def test_transcription_invalid_json_body(self, hailo_whisper_url, service_running):
-        """Test transcription with invalid JSON returns error."""
+    def test_transcription_non_multipart_content_type(self, hailo_whisper_url, service_running):
+        """Test transcription with non-multipart Content-Type returns 415."""
+        # Test with application/json
         response = requests.post(
             f"{hailo_whisper_url}/v1/audio/transcriptions",
-            data="not-valid-multipart",
+            json={"file": "test", "model": "Whisper-Base"},
             headers={"Content-Type": "application/json"}
         )
         
-        assert response.status_code in [400, 415]
+        assert response.status_code == 415
+        result = response.json()
+        assert "error" in result
+        assert "multipart/form-data" in result["error"]["message"].lower()
+    
+    def test_transcription_raw_audio_body(self, hailo_whisper_url, service_running, test_audio_wav):
+        """Test transcription with raw audio body (not multipart) returns 415."""
+        with open(test_audio_wav, "rb") as f:
+            audio_data = f.read()
+        
+        response = requests.post(
+            f"{hailo_whisper_url}/v1/audio/transcriptions",
+            data=audio_data,
+            headers={"Content-Type": "audio/wav"}
+        )
+        
+        assert response.status_code == 415
+        result = response.json()
+        assert "error" in result
+        assert "multipart" in result["error"]["message"].lower()
 
 
 class TestConcurrentRequests:
@@ -222,7 +242,7 @@ class TestConcurrentRequests:
         for i in range(3):
             with open(test_audio_wav, "rb") as f:
                 files = {"file": f}
-                data = {"model": "whisper-small"}
+                data = {"model": "Whisper-Base"}
                 
                 response = requests.post(
                     f"{hailo_whisper_url}/v1/audio/transcriptions",
@@ -233,6 +253,76 @@ class TestConcurrentRequests:
                 assert response.status_code == 200
                 result = response.json()
                 assert "text" in result
+
+
+class TestInMemoryUploads:
+    """Test uploads without local file paths."""
+    
+    def test_transcription_from_bytes(self, hailo_whisper_url, service_running, test_audio_wav):
+        """Test transcription from in-memory bytes."""
+        import io
+        
+        # Read file into memory
+        with open(test_audio_wav, "rb") as f:
+            audio_bytes = f.read()
+        
+        # Upload from BytesIO (simulates in-memory blob)
+        files = {"file": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")}
+        data = {"model": "Whisper-Base"}
+        
+        response = requests.post(
+            f"{hailo_whisper_url}/v1/audio/transcriptions",
+            files=files,
+            data=data
+        )
+        
+        assert response.status_code == 200
+        result = response.json()
+        assert "text" in result
+
+
+class TestOptionalFields:
+    """Test optional field handling."""
+    
+    def test_transcription_with_prompt(self, hailo_whisper_url, service_running, test_audio_wav):
+        """Test transcription with prompt field."""
+        with open(test_audio_wav, "rb") as f:
+            files = {"file": f}
+            data = {
+                "model": "Whisper-Base",
+                "prompt": "This is a test prompt for style guidance."
+            }
+            
+            response = requests.post(
+                f"{hailo_whisper_url}/v1/audio/transcriptions",
+                files=files,
+                data=data
+            )
+        
+        # Should accept the field even if not used by backend
+        assert response.status_code == 200
+        result = response.json()
+        assert "text" in result
+    
+    def test_transcription_with_temperature(self, hailo_whisper_url, service_running, test_audio_wav):
+        """Test transcription with temperature field."""
+        with open(test_audio_wav, "rb") as f:
+            files = {"file": f}
+            data = {
+                "model": "Whisper-Base",
+                "temperature": "0.5"
+            }
+            
+            response = requests.post(
+                f"{hailo_whisper_url}/v1/audio/transcriptions",
+                files=files,
+                data=data
+            )
+        
+        # Should accept the field even if not used by backend
+        assert response.status_code == 200
+        result = response.json()
+        assert "text" in result
 
 
 @pytest.mark.skipif(

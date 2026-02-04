@@ -47,12 +47,11 @@ remove_unit() {
     systemctl daemon-reload
 }
 
-remove_server_script() {
-    log "Removing server script"
-    
-    local script_path="/usr/local/bin/hailo-whisper-server"
-    if [[ -f "${script_path}" ]]; then
-        rm -f "${script_path}"
+remove_service_dir() {
+    log "Removing /opt service directory"
+
+    if [[ -d /opt/hailo-whisper ]]; then
+        rm -rf /opt/hailo-whisper
     fi
 }
 
@@ -97,7 +96,7 @@ main() {
     
     stop_and_disable
     remove_unit
-    remove_server_script
+    remove_service_dir
     remove_config
     remove_state
     remove_user

@@ -23,7 +23,7 @@ Design decisions and implementation details for speech-to-text on Hailo-10H.
                        │ HTTP (multipart/form-data)
                        ▼
 ┌─────────────────────────────────────────────────────────┐
-│              hailo-whisper Service (Port 11436)         │
+│              hailo-whisper Service (Port 11437)         │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │  aiohttp Web Server (async)                       │  │
 │  │  - POST /v1/audio/transcriptions                  │  │
@@ -108,8 +108,8 @@ Service Start → Load Model → Ready for Inference
 | **Total**          | ~600 MB        | ~1.5 GB         |
 
 **systemd Limits:**
-- `MemoryMax=3G` - Hard limit (safe for whisper-small on Pi 5)
-- Adjust for larger models (whisper-medium requires ~4G)
+- `MemoryMax=3G` - Hard limit (safe for Whisper-Base on Pi 5)
+- Adjust for larger models if you swap the HEF manually
 
 ### CPU Usage
 
@@ -124,7 +124,7 @@ Service Start → Load Model → Ready for Inference
 
 - **Concurrent Services**: Hailo-10H supports multiple services (hailo-whisper can run alongside hailo-vision, hailo-ollama)
 - **Memory Sharing**: NPU has 8GB DRAM shared across all services
-- **Budget Planning**: Allocate ~400MB for whisper-small, ~1.2GB for whisper-medium
+- **Budget Planning**: Allocate ~400MB for Whisper-Base
 
 ## Audio Processing Pipeline
 
@@ -152,31 +152,13 @@ Format Output (JSON/SRT/VTT/Text)
 
 ## Model Variants
 
-### whisper-tiny
-- Parameters: 39M
-- Memory: ~200 MB
-- Latency: Low
-- Accuracy: Basic
-
-### whisper-base
-- Parameters: 74M
-- Memory: ~300 MB
-- Latency: Low
-- Accuracy: Good
-
-### whisper-small (default)
-- Parameters: 244M
-- Memory: ~400 MB
+### Whisper-Base (default)
+- Gen-AI Hailo model in the `whisper_chat` group
+- Memory: ~400 MB (model + runtime)
 - Latency: Medium
 - Accuracy: Very Good
 
-### whisper-medium
-- Parameters: 769M
-- Memory: ~1.2 GB
-- Latency: High
-- Accuracy: Excellent
-
-**Recommendation**: Start with `whisper-small` for best balance of accuracy and resource usage.
+**Recommendation**: Start with `Whisper-Base` for best balance of accuracy and resource usage.
 
 ## Security Considerations
 
@@ -187,8 +169,7 @@ NoNewPrivileges=true         # Prevent privilege escalation
 PrivateTmp=true              # Isolated /tmp
 ProtectSystem=strict         # Read-only /usr, /boot, /efi
 ProtectHome=true             # No access to /home
-ReadWritePaths=/var/lib/hailo-whisper  # State directory only
-DeviceAllow=/dev/hailo0 rw   # NPU device only
+ReadWritePaths=/var/lib/hailo-whisper /etc/xdg/hailo-whisper
 ```
 
 ### Input Validation
@@ -250,22 +231,22 @@ DeviceAllow=/dev/hailo0 rw   # NPU device only
 
 ```python
 import requests
-response = requests.post(url, files={"file": audio}, data={"model": "whisper-small"})
+response = requests.post(url, files={"file": audio}, data={"model": "Whisper-Base"})
 ```
 
 ### OpenAI SDK
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://localhost:11436/v1")
-transcript = client.audio.transcriptions.create(model="whisper-small", file=audio)
+client = OpenAI(base_url="http://localhost:11437/v1")
+transcript = client.audio.transcriptions.create(model="Whisper-Base", file=audio)
 ```
 
 ### Reverse Proxy (nginx)
 
 ```nginx
 upstream hailo-whisper {
-    server localhost:11436;
+    server localhost:11437;
 }
 
 server {

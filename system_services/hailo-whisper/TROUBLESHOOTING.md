@@ -26,7 +26,7 @@ ImportError: No module named 'aiohttp'
 
 **Solution:**
 ```bash
-pip3 install aiohttp pyyaml
+sudo /opt/hailo-whisper/venv/bin/pip install -r /opt/hailo-whisper/requirements.txt
 ```
 
 #### 2. Hailo Device Not Found
@@ -94,12 +94,12 @@ OSError: [Errno 98] Address already in use
 **Solution:**
 ```bash
 # Check what's using the port
-sudo ss -ltnp | grep 11436
+sudo ss -ltnp | grep 11437
 
 # Kill conflicting process or change port
 sudo nano /etc/hailo/hailo-whisper.yaml
 # Change port, then:
-sudo python3 /usr/lib/hailo-whisper/render_config.py \
+sudo /opt/hailo-whisper/venv/bin/python3 /opt/hailo-whisper/render_config.py \
   --input /etc/hailo/hailo-whisper.yaml \
   --output /etc/xdg/hailo-whisper/hailo-whisper.json
 sudo systemctl restart hailo-whisper
@@ -111,8 +111,8 @@ sudo systemctl restart hailo-whisper
 
 ### Symptom
 ```bash
-$ curl http://localhost:11436/health
-curl: (7) Failed to connect to localhost port 11436: Connection refused
+$ curl http://localhost:11437/health
+curl: (7) Failed to connect to localhost port 11437: Connection refused
 ```
 
 ### Diagnosis
@@ -141,10 +141,10 @@ curl http://localhost:<port>/health
 #### 3. Firewall Blocking
 ```bash
 # Check firewall rules
-sudo iptables -L -n | grep 11436
+sudo iptables -L -n | grep 11437
 
 # If needed, allow port
-sudo iptables -A INPUT -p tcp --dport 11436 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 11437 -j ACCEPT
 ```
 
 ---
@@ -153,9 +153,9 @@ sudo iptables -A INPUT -p tcp --dport 11436 -j ACCEPT
 
 ### Symptom
 ```bash
-$ curl -X POST http://localhost:11436/v1/audio/transcriptions \
+$ curl -X POST http://localhost:11437/v1/audio/transcriptions \
   -F file="@audio.mp3" \
-  -F model="whisper-small"
+  -F model="Whisper-Base"
 {"error": {"message": "...", "type": "internal_error"}}
 ```
 
@@ -177,7 +177,67 @@ $ curl -X POST http://localhost:11436/v1/audio/transcriptions \
     max_audio_duration_seconds: 600  # 10 minutes
   ```
 
-#### 2. Unsupported Audio Format
+#### 2. Wrong Content-Type (Not Multipart)
+
+**Error:**
+```json
+{"error": {"message": "Content-Type must be multipart/form-data. This endpoint follows the OpenAI Whisper API specification...", "type": "invalid_request_error"}}
+```
+
+**HTTP Status:** 415 Unsupported Media Type
+
+**Solution:**
+This endpoint requires `multipart/form-data` uploads per the OpenAI Whisper API spec. Raw audio payloads are not supported.
+
+**Incorrect:**
+```bash
+# This will fail (raw audio body)
+curl -X POST http://localhost:11437/v1/audio/transcriptions \
+  -H "Content-Type: audio/wav" \
+  --data-binary "@audio.wav"
+```
+
+**Correct:**
+```bash
+# Use multipart/form-data with -F flag
+curl -X POST http://localhost:11437/v1/audio/transcriptions \
+  -F file="@audio.wav" \
+  -F model="Whisper-Base"
+```
+
+**For in-memory/streaming uploads:**
+```bash
+# From stdin
+ffmpeg -i input.mp4 -f mp3 - | \
+  curl -X POST http://localhost:11437/v1/audio/transcriptions \
+    -F file="@-;filename=audio.mp3" \
+    -F model="Whisper-Base"
+
+# From URL without saving locally
+curl -s https://example.com/audio.mp3 | \
+  curl -X POST http://localhost:11437/v1/audio/transcriptions \
+    -F file="@-;filename=audio.mp3" \
+    -F model="Whisper-Base"
+```
+
+**Python (requests):**
+```python
+import io
+import requests
+
+# In-memory upload (no file on disk)
+audio_bytes = get_audio_from_somewhere()
+files = {"file": ("audio.mp3", io.BytesIO(audio_bytes), "audio/mpeg")}
+data = {"model": "Whisper-Base"}
+
+response = requests.post(
+    "http://localhost:11437/v1/audio/transcriptions",
+    files=files,
+    data=data
+)
+```
+
+#### 3. Unsupported Audio Format
 
 **Error:**
 ```json
@@ -201,7 +261,7 @@ $ curl -X POST http://localhost:11436/v1/audio/transcriptions \
 **Solution:**
 ```bash
 # Check readiness
-curl http://localhost:11436/health/ready
+curl http://localhost:11437/health/ready
 
 # Check logs for model loading errors
 sudo journalctl -u hailo-whisper -n 100 --no-pager | grep -i model
@@ -234,7 +294,7 @@ sudo systemctl restart hailo-whisper
 sudo nano /etc/hailo/hailo-whisper.yaml
 # Change:
 model:
-  name: "whisper-base"  # Instead of whisper-small
+  name: "Whisper-Base"  # Instead of smaller variants
 ```
 
 ---
@@ -277,7 +337,7 @@ top -p $(pgrep -f hailo-whisper)
 4. **Switch to Smaller Model**
    ```yaml
    model:
-     name: "whisper-base"  # Faster than whisper-small
+    name: "Whisper-Base"  # Default model for hailo10h
    ```
 
 ---
@@ -291,7 +351,7 @@ top -p $(pgrep -f hailo-whisper)
 **Solution:**
 ```bash
 # Re-render JSON config
-sudo python3 /usr/lib/hailo-whisper/render_config.py \
+sudo /opt/hailo-whisper/venv/bin/python3 /opt/hailo-whisper/render_config.py \
   --input /etc/hailo/hailo-whisper.yaml \
   --output /etc/xdg/hailo-whisper/hailo-whisper.json
 
@@ -299,7 +359,7 @@ sudo python3 /usr/lib/hailo-whisper/render_config.py \
 sudo systemctl restart hailo-whisper
 
 # Verify config loaded
-curl http://localhost:11436/health
+curl http://localhost:11437/health
 ```
 
 ### Invalid YAML Syntax
@@ -315,7 +375,7 @@ Error: Failed to parse YAML: ...
 python3 -c "import yaml; yaml.safe_load(open('/etc/hailo/hailo-whisper.yaml'))"
 
 # Fix syntax errors, then re-render
-sudo python3 /usr/lib/hailo-whisper/render_config.py \
+sudo /opt/hailo-whisper/venv/bin/python3 /opt/hailo-whisper/render_config.py \
   --input /etc/hailo/hailo-whisper.yaml \
   --output /etc/xdg/hailo-whisper/hailo-whisper.json
 ```
@@ -329,22 +389,22 @@ sudo python3 /usr/lib/hailo-whisper/render_config.py \
 **Problem:**
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://localhost:11436/v1")
+client = OpenAI(base_url="http://localhost:11437/v1")
 # openai.APIConnectionError: Connection error
 ```
 
 **Solution:**
 ```bash
 # Verify service is running
-curl http://localhost:11436/health
+curl http://localhost:11437/health
 
 # Check firewall (if accessing from another machine)
-sudo ufw allow 11436/tcp
+sudo ufw allow 11437/tcp
 
 # Ensure correct base_url (note /v1 suffix)
 client = OpenAI(
-    api_key="not-needed",
-    base_url="http://localhost:11436/v1"
+  api_key="not-needed",
+  base_url="http://localhost:11437/v1"
 )
 ```
 
@@ -355,7 +415,7 @@ client = OpenAI(
 **Solution:** Add reverse proxy with CORS headers (nginx example):
 ```nginx
 location / {
-    proxy_pass http://localhost:11436;
+    proxy_pass http://localhost:11437;
     add_header Access-Control-Allow-Origin *;
     add_header Access-Control-Allow-Methods "GET, POST, OPTIONS";
     add_header Access-Control-Allow-Headers "Content-Type";
@@ -389,13 +449,13 @@ cat /etc/xdg/hailo-whisper/hailo-whisper.json
 
 ### Test Health
 ```bash
-curl http://localhost:11436/health
-curl http://localhost:11436/health/ready
+curl http://localhost:11437/health
+curl http://localhost:11437/health/ready
 ```
 
 ### List Models
 ```bash
-curl http://localhost:11436/v1/models
+curl http://localhost:11437/v1/models
 ```
 
 ### Test Transcription
@@ -404,9 +464,9 @@ curl http://localhost:11436/v1/models
 ffmpeg -f lavfi -i "sine=frequency=1000:duration=2" test.wav
 
 # Transcribe
-curl -X POST http://localhost:11436/v1/audio/transcriptions \
+curl -X POST http://localhost:11437/v1/audio/transcriptions \
   -F file="@test.wav" \
-  -F model="whisper-small"
+  -F model="Whisper-Base"
 ```
 
 ### Check System Resources

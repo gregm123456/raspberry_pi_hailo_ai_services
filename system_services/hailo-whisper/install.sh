@@ -2,9 +2,19 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
 SERVICE_NAME="hailo-whisper"
 SERVICE_USER="hailo-whisper"
 SERVICE_GROUP="hailo-whisper"
+SERVICE_DIR="/opt/hailo-whisper"
+DATA_DIR="/var/lib/hailo-whisper"
+RESOURCES_DIR="${DATA_DIR}/resources"
+VENV_DIR="${SERVICE_DIR}/venv"
+VENDOR_DIR="${SERVICE_DIR}/vendor"
+HAILO_APPS_SRC="${REPO_ROOT}/hailo-apps"
+HAILO_APPS_VENDOR_PATH="${VENDOR_DIR}/hailo-apps"
+
 UNIT_SRC="${SCRIPT_DIR}/hailo-whisper.service"
 UNIT_DEST="/etc/systemd/system/hailo-whisper.service"
 CONFIG_TEMPLATE="${SCRIPT_DIR}/config.yaml"
@@ -12,9 +22,9 @@ ETC_HAILO_CONFIG="/etc/hailo/hailo-whisper.yaml"
 ETC_XDG_DIR="/etc/xdg/hailo-whisper"
 JSON_CONFIG="${ETC_XDG_DIR}/hailo-whisper.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
-DEFAULT_PORT="11436"
+DEFAULT_PORT="11437"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_whisper_server.py"
-INSTALL_TARGET="/usr/local/bin/hailo-whisper-server"
+REQUIREMENTS_SRC="${SCRIPT_DIR}/requirements.txt"
 
 WARMUP_MODEL=""
 
@@ -23,7 +33,7 @@ usage() {
 Usage: sudo ./install.sh [OPTIONS]
 
 Options:
-  --warmup-model     Load model after install (optional)
+    --warmup-model     Load model after install (optional)
   -h, --help         Show this help
 EOF
 }
@@ -56,27 +66,6 @@ require_command() {
     fi
 }
 
-check_python_yaml() {
-    require_command python3 "Install with: sudo apt install python3"
-    if ! python3 - <<'PY' >/dev/null 2>&1
-import yaml
-PY
-    then
-        error "PyYAML is required. Install with: sudo apt install python3-yaml"
-        exit 1
-    fi
-}
-
-check_python_aiohttp() {
-    if ! python3 - <<'PY' >/dev/null 2>&1
-import aiohttp
-PY
-    then
-        error "aiohttp is required. Install with: pip3 install aiohttp"
-        exit 1
-    fi
-}
-
 preflight_hailo() {
     if [[ ! -e /dev/hailo0 ]]; then
         error "/dev/hailo0 not found. Install Hailo driver: sudo apt install dkms hailo-h10-all"
@@ -92,22 +81,18 @@ preflight_hailo() {
     fi
 }
 
-preflight_hailo_hailort() {
-    # Check for HailoRT Python bindings
+preflight_hailort() {
     if ! python3 - <<'PY' >/dev/null 2>&1
 try:
-    from hailo_platform import HailoRT
+    import hailo_platform
     print("OK")
 except ImportError:
     raise
 PY
     then
-        warn "HailoRT Python bindings not found."
-        warn ""
-        warn "Install from Hailo Developer Zone or via pip:"
-        warn "  pip3 install hailort  # or from Dev Zone Debian package"
-        warn ""
-        warn "Note: Service will run but require HailoRT for actual inference."
+        error "HailoRT Python bindings (hailo_platform) not found in system site-packages."
+        error "Install with: sudo apt install python3-h10-hailort"
+        exit 1
     fi
 }
 
@@ -143,11 +128,58 @@ configure_device_permissions() {
 
 create_state_directories() {
     log "Creating service directory structure"
-    mkdir -p /var/lib/hailo-whisper/models
-    mkdir -p /var/lib/hailo-whisper/cache
+    mkdir -p "${RESOURCES_DIR}/models/hailo10h"
+    mkdir -p "${DATA_DIR}/cache"
+    mkdir -p "${SERVICE_DIR}"
 
-    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/lib/hailo-whisper
-    chmod -R u+rwX,g+rX,o-rwx /var/lib/hailo-whisper
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${DATA_DIR}"
+    chmod -R u+rwX,g+rX,o-rwx "${DATA_DIR}"
+    chmod 0755 "${DATA_DIR}"
+
+    cp "${SERVER_SCRIPT}" "${SERVICE_DIR}/"
+    cp "${RENDER_SCRIPT}" "${SERVICE_DIR}/"
+    cp "${REQUIREMENTS_SRC}" "${SERVICE_DIR}/"
+
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}"
+    chmod 0755 "${SERVICE_DIR}/hailo_whisper_server.py"
+}
+
+create_venv() {
+    log "Creating Python virtual environment with system site packages"
+    rm -rf "${VENV_DIR}"
+    python3 -m venv --system-site-packages "${VENV_DIR}"
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${VENV_DIR}"
+}
+
+vendor_hailo_apps() {
+    log "Vendoring hailo-apps into ${HAILO_APPS_VENDOR_PATH}"
+    if [[ ! -d "${HAILO_APPS_SRC}" ]]; then
+        error "hailo-apps source not found at ${HAILO_APPS_SRC}. Is submodule initialized?"
+        exit 1
+    fi
+
+    rm -rf "${HAILO_APPS_VENDOR_PATH}"
+    mkdir -p "${VENDOR_DIR}"
+    cp -a "${HAILO_APPS_SRC}" "${VENDOR_DIR}/"
+
+    sed -i "s|RESOURCES_ROOT_PATH_DEFAULT = \"/usr/local/hailo/resources\"|RESOURCES_ROOT_PATH_DEFAULT = \"${RESOURCES_DIR}\"|g" \
+        "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/core/common/defines.py"
+
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/__init__.py"
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/__init__.py"
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/core/__init__.py"
+
+    chown -R root:root "${HAILO_APPS_VENDOR_PATH}"
+    chmod -R u+rwX,go+rX,go-w "${HAILO_APPS_VENDOR_PATH}"
+}
+
+install_requirements() {
+    log "Installing Python requirements in venv"
+    "${VENV_DIR}/bin/pip" install --upgrade pip
+    "${VENV_DIR}/bin/pip" install -r "${SERVICE_DIR}/requirements.txt"
+
+    log "Installing vendored hailo-apps into venv"
+    "${VENV_DIR}/bin/pip" install "${HAILO_APPS_VENDOR_PATH}"
 }
 
 install_config() {
@@ -161,21 +193,11 @@ install_config() {
 
     install -d -m 0755 "${ETC_XDG_DIR}"
     log "Rendering JSON config to ${JSON_CONFIG}"
-    python3 "${RENDER_SCRIPT}" --input "${ETC_HAILO_CONFIG}" --output "${JSON_CONFIG}"
-}
-
-install_server_script() {
-    if [[ ! -f "${SERVER_SCRIPT}" ]]; then
-        error "Server script not found: ${SERVER_SCRIPT}"
-        exit 1
-    fi
-
-    log "Installing server script to ${INSTALL_TARGET}"
-    install -m 0755 "${SERVER_SCRIPT}" "${INSTALL_TARGET}"
+    "${VENV_DIR}/bin/python3" "${RENDER_SCRIPT}" --input "${ETC_HAILO_CONFIG}" --output "${JSON_CONFIG}"
 }
 
 get_config_port() {
-    python3 - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
+    "${VENV_DIR}/bin/python3" - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
 import yaml
 import sys
 
@@ -184,10 +206,10 @@ try:
     with open(path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     server = data.get("server", {}) if isinstance(data, dict) else {}
-    port = server.get("port", 11436)
+    port = server.get("port", 11437)
     print(int(port))
 except Exception:
-    print(11436)
+    print(11437)
 PY
 }
 
@@ -198,6 +220,61 @@ warn_if_port_in_use() {
             warn "Port ${port} is already in use. Update /etc/hailo/hailo-whisper.yaml if needed."
         fi
     fi
+}
+
+resolve_config_model_name() {
+    "${VENV_DIR}/bin/python3" - <<'PY' 2>/dev/null || echo ""
+import yaml
+
+path = "/etc/hailo/hailo-whisper.yaml"
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    model = data.get("model", {}) if isinstance(data, dict) else {}
+    name = model.get("name", "")
+    print(name)
+except Exception:
+    print("")
+PY
+}
+
+resolve_default_model_name() {
+    "${VENV_DIR}/bin/python3" - <<'PY' 2>/dev/null || echo ""
+from hailo_apps.python.core.common.defines import WHISPER_MODEL_NAME_H10
+print(WHISPER_MODEL_NAME_H10 or "")
+PY
+}
+
+ensure_model_downloaded() {
+    local model_name
+    model_name="$(resolve_config_model_name)"
+
+    if [[ -z "${model_name}" ]]; then
+        model_name="$(resolve_default_model_name)"
+    fi
+
+    if [[ -z "${model_name}" ]]; then
+        warn "No model name resolved; skipping model download"
+        return 0
+    fi
+
+    local model_path
+    model_path="${RESOURCES_DIR}/models/hailo10h/${model_name}.hef"
+    if [[ -f "${model_path}" ]]; then
+        log "Model already present: ${model_path}"
+        return 0
+    fi
+
+    log "Downloading model: ${model_name}"
+    PYTHONPATH="${HAILO_APPS_VENDOR_PATH}" "${VENV_DIR}/bin/python3" -m hailo_apps.installation.download_resources \
+        --group whisper_chat \
+        --arch hailo10h \
+        --resource-type model \
+        --resource-name "${model_name}" \
+        --include-gen-ai \
+        --no-parallel
+
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${RESOURCES_DIR}"
 }
 
 install_unit() {
@@ -262,16 +339,19 @@ parse_args() {
 main() {
     parse_args "$@"
     require_root
+    require_command python3 "Install with: sudo apt install python3"
+    require_command ffmpeg "Install with: sudo apt install ffmpeg"
     preflight_hailo
-    preflight_hailo_hailort
-    check_python_yaml
-    check_python_aiohttp
+    preflight_hailort
 
     create_user_group
     configure_device_permissions
     create_state_directories
+    create_venv
+    vendor_hailo_apps
+    install_requirements
     install_config
-    install_server_script
+    ensure_model_downloaded
 
     local port
     port="$(get_config_port)"

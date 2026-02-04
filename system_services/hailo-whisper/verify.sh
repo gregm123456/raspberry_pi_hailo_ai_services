@@ -3,7 +3,7 @@ set -euo pipefail
 
 SERVICE_NAME="hailo-whisper"
 CONFIG_PATH="/etc/hailo/hailo-whisper.yaml"
-DEFAULT_PORT="11436"
+DEFAULT_PORT="11437"
 
 log() {
     echo "[verify] $*"
@@ -23,10 +23,10 @@ try:
     with open(path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     server = data.get("server", {}) if isinstance(data, dict) else {}
-    port = server.get("port", 11436)
+    port = server.get("port", 11437)
     print(int(port))
 except Exception:
-    print(11436)
+    print(11437)
 PY
 }
 
@@ -117,6 +117,31 @@ verify_permissions() {
         return 1
     fi
     
+    local hef_dir
+    hef_dir="/var/lib/hailo-whisper/resources/models/hailo10h"
+    if [[ ! -d "${hef_dir}" ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            if sudo -n test -d "${hef_dir}" 2>/dev/null; then
+                error "Model directory exists but is not accessible to this user."
+                error "Run verify.sh with sudo or add your user to the hailo-whisper group."
+                return 1
+            fi
+        fi
+
+        error "Model directory missing: ${hef_dir}"
+        if [[ -d /usr/local/hailo/resources/models/hailo10h ]]; then
+            error "Found models under /usr/local/hailo/resources. Re-run install.sh to relocate into /var/lib/hailo-whisper/resources."
+        fi
+        return 1
+    fi
+
+    local hef_count
+    hef_count=$(find "${hef_dir}" -maxdepth 1 -name "*.hef" | wc -l)
+    if [[ "${hef_count}" -eq 0 ]]; then
+        error "No HEF models found in ${hef_dir}"
+        return 1
+    fi
+
     log "✓ Permissions configured correctly"
 }
 

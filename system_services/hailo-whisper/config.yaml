@@ -1,13 +1,13 @@
 server:
   host: 0.0.0.0
-  port: 11436
+  port: 11437
 
 model:
-  # Whisper model size and quantization
-  # Supported: whisper-tiny, whisper-base, whisper-small, whisper-medium
-  name: "whisper-small"
-  # Model quantization variant (int8 for best NPU performance)
-  variant: "int8"
+  # Whisper model name as registered in hailo-apps resources
+  # Default: Whisper-Base (hailo10h gen-ai model)
+  name: "Whisper-Base"
+  # Model variant (kept for compatibility with prior configs)
+  variant: "base"
   # keep_alive controls model lifecycle:
   # -1 = persistent (keep loaded indefinitely)
   # 0 = unload immediately after request
@@ -31,6 +31,8 @@ transcription:
 storage:
   # Directory for temporary audio file cache
   cache_dir: "/var/lib/hailo-whisper/cache"
+  # Directory for downloaded model resources
+  resources_dir: "/var/lib/hailo-whisper/resources"
 
 # Optional resource limits (tunable)
 resource_limits:
