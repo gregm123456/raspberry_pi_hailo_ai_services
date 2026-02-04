@@ -34,7 +34,7 @@ sudo ./install.sh
 
 This will:
 - Create `hailo-pose` system user and group
-- Install service to `/usr/local/bin/hailo-pose-server`
+- Install service to `/opt/hailo-pose/` (venv + vendored hailo-apps)
 - Install systemd unit to `/etc/systemd/system/hailo-pose.service`
 - Create config at `/etc/hailo/hailo-pose.yaml`
 - Start and enable the service
@@ -101,7 +101,7 @@ server:
   port: 11436
 
 model:
-  name: "yolov8s-pose"
+  name: "yolov8s_pose"
   keep_alive: -1  # -1 = persistent, 0 = unload after request
 
 inference:
@@ -117,7 +117,7 @@ pose:
 
 After editing, re-render the JSON config and restart:
 ```bash
-sudo python3 /usr/local/bin/hailo-pose-server/render_config.py \
+sudo /opt/hailo-pose/venv/bin/python3 /opt/hailo-pose/render_config.py \
   --input /etc/hailo/hailo-pose.yaml \
   --output /etc/xdg/hailo-pose/hailo-pose.json
 sudo systemctl restart hailo-pose.service
@@ -139,7 +139,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for design details.
 
 Key characteristics:
 - **Model Lifecycle:** Persistent loading (model stays resident in memory)
-- **Memory Budget:** ~1.5-2GB (YOLOv8s-pose)
+- **Memory Budget:** ~1.5-2GB (YOLOv8s_pose)
 - **Inference Latency:** ~30-60ms per image (640x640)
 - **Throughput:** ~15-25 FPS on Pi 5
 - **Concurrent Services:** Can run alongside other Hailo services
@@ -218,10 +218,10 @@ CPUQuota=60%
 ### Model Selection
 
 Available YOLOv8-pose variants:
-- `yolov8n-pose` - Nano (fastest, lowest accuracy)
-- `yolov8s-pose` - Small (balanced, default)
-- `yolov8m-pose` - Medium (slower, better accuracy)
-- `yolov8l-pose` - Large (requires more memory)
+- `yolov8n_pose` - Nano (fastest, lowest accuracy)
+- `yolov8s_pose` - Small (balanced, default)
+- `yolov8m_pose` - Medium (slower, better accuracy)
+- `yolov8l_pose` - Large (requires more memory)
 
 Update `model.name` in `/etc/hailo/hailo-pose.yaml` and restart.
 

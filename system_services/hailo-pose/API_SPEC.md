@@ -30,7 +30,7 @@ Health check endpoint. Returns service status and model information.
 ```json
 {
   "status": "ok",
-  "model": "yolov8s-pose",
+  "model": "yolov8s_pose",
   "model_loaded": true,
   "uptime_seconds": 3600
 }
@@ -68,7 +68,7 @@ List available pose estimation models.
 {
   "data": [
     {
-      "id": "yolov8s-pose",
+      "id": "yolov8s_pose",
       "object": "model",
       "created": 1706745600,
       "owned_by": "hailo",
@@ -330,7 +330,7 @@ Standard HTTP status codes:
 
 ## Performance Characteristics
 
-| Metric | Value (YOLOv8s-pose) |
+| Metric | Value (YOLOv8s_pose) |
 |--------|----------------------|
 | **Throughput** | ~15-25 FPS |
 | **Latency (avg)** | 30-60 ms |

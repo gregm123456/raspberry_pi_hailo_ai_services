@@ -172,7 +172,7 @@ curl http://localhost:11436/health/ready
 **If not ready:**
 - Wait for model loading to complete
 - Check logs for loading errors: `journalctl -u hailo-pose.service -n 50`
-- Verify model files exist in `/var/lib/hailo-pose/models/`
+- Verify model files exist in `/var/lib/hailo-pose/resources/models/hailo10h/`
 
 ---
 

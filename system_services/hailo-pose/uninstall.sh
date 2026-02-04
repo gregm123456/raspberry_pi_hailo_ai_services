@@ -7,7 +7,7 @@ SERVICE_GROUP="hailo-pose"
 UNIT_DEST="/etc/systemd/system/hailo-pose.service"
 ETC_HAILO_CONFIG="/etc/hailo/hailo-pose.yaml"
 ETC_XDG_DIR="/etc/xdg/hailo-pose"
-INSTALL_TARGET="/usr/local/bin/hailo-pose-server"
+SERVICE_DIR="/opt/hailo-pose"
 
 log() {
     echo "[hailo-pose] $*"
@@ -48,10 +48,10 @@ remove_systemd_unit() {
     fi
 }
 
-remove_server_script() {
-    if [[ -f "${INSTALL_TARGET}" ]]; then
-        log "Removing server script: ${INSTALL_TARGET}"
-        rm -f "${INSTALL_TARGET}"
+remove_service_dir() {
+    if [[ -d "${SERVICE_DIR}" ]]; then
+        log "Removing service directory: ${SERVICE_DIR}"
+        rm -rf "${SERVICE_DIR}"
     fi
 }
 
@@ -104,7 +104,7 @@ main() {
     log "Uninstalling ${SERVICE_NAME}"
     stop_and_disable_service
     remove_systemd_unit
-    remove_server_script
+    remove_service_dir
     remove_config_files
     remove_state_directory
     remove_user_group

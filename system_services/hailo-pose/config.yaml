@@ -4,7 +4,7 @@ server:
 
 model:
   # Model name and variant
-  name: "yolov8s-pose"
+  name: "yolov8s_pose"
   # keep_alive controls model lifecycle:
   # -1 = persistent (keep loaded indefinitely)
   # 0 = unload immediately after request

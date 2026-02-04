@@ -61,10 +61,11 @@ The Hailo Pose service provides YOLOv8-based pose estimation on the Hailo-10H NP
 **Purpose:** Core inference service with model lifecycle management
 
 **Responsibilities:**
-- Initialize HailoRT model at startup
+- Resolve HEF paths via hailo-apps (`resolve_hef_path`)
+- Initialize HailoRT model at startup (`HailoInfer`)
 - Maintain persistent model in memory (if `keep_alive = -1`)
 - Orchestrate inference pipeline
-- Post-process outputs (NMS, keypoint extraction)
+- Post-process outputs (`PoseEstPostProcessing`)
 
 **Inference Pipeline:**
 1. **Image Preprocessing:**
@@ -111,6 +112,10 @@ The Hailo Pose service provides YOLOv8-based pose estimation on the Hailo-10H NP
 - `Restart=always` - Auto-restart on failure
 - `MemoryMax=2G` - Memory limit
 - `CPUQuota=80%` - CPU quota (4 cores @ 80% = 3.2 cores)
+
+**Runtime Layout:**
+- `/opt/hailo-pose/` - Service code, venv, and vendored hailo-apps
+- `/var/lib/hailo-pose/` - Writable state and model cache
 
 **Environment Variables:**
 - `XDG_CONFIG_HOME=/etc/xdg` - Config location
@@ -191,7 +196,7 @@ Client receives result
 
 ### Memory Budget
 
-**YOLOv8s-pose (default):**
+**YOLOv8s_pose (default):**
 - Model weights: ~12 MB HEF
 - NPU activation memory: ~1.2 GB
 - Python process: ~300 MB
@@ -262,7 +267,7 @@ Client receives result
 
 **Read-write:**
 - `/var/lib/hailo-pose/` (state directory)
-- `/var/lib/hailo-pose/models/` (model cache)
+- `/var/lib/hailo-pose/resources/` (model cache)
 - `/var/lib/hailo-pose/cache/` (temporary files)
 
 ### Systemd Hardening
@@ -290,7 +295,7 @@ Error: /dev/hailo0 not found
 
 **Model not found:**
 ```
-Error: Cannot load model 'yolov8s-pose.hef'
+Error: Cannot load model 'yolov8s_pose.hef'
 → Solution: Download model or check model path
 ```
 

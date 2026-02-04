@@ -3,6 +3,7 @@ set -euo pipefail
 
 SERVICE_NAME="hailo-pose"
 DEFAULT_PORT="11436"
+VENV_PYTHON="/opt/hailo-pose/venv/bin/python3"
 
 log() {
     echo "[verify] $*"
@@ -13,7 +14,12 @@ error() {
 }
 
 get_config_port() {
-    python3 - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
+    local python_exec="python3"
+    if [[ -x "${VENV_PYTHON}" ]]; then
+        python_exec="${VENV_PYTHON}"
+    fi
+
+    "${python_exec}" - <<'PY' 2>/dev/null || echo "${DEFAULT_PORT}"
 import yaml
 import sys
 

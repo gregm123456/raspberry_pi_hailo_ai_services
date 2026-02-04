@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""
-Hailo Pose Service - YOLOv8 Pose Estimation on Hailo-10H
-
-REST API server exposing pose estimation inference.
-Detects human keypoints and skeleton connections in COCO format.
-"""
+"""Hailo Pose Service - YOLOv8 pose estimation on Hailo-10H."""
 
 import asyncio
 import base64
@@ -12,17 +7,40 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, Optional
 
 try:
     from aiohttp import web
-    import yaml
+    import numpy as np
+    from PIL import Image
 except ImportError as e:
     print(f"Error: Missing required package: {e}")
-    print("Install with: pip3 install aiohttp pyyaml")
+    print("Install with: pip3 install aiohttp pillow numpy")
+    sys.exit(1)
+
+# Add vendored hailo-apps to path if present
+VENDOR_DIR = Path("/opt/hailo-pose/vendor/hailo-apps")
+if VENDOR_DIR.exists():
+    sys.path.insert(0, str(VENDOR_DIR))
+
+try:
+    from hailo_apps.python.core.common.hailo_inference import HailoInfer
+    from hailo_apps.python.core.common.core import resolve_hef_path
+    from hailo_apps.python.core.common.defines import (
+        HAILO10H_ARCH,
+        POSE_ESTIMATION_PIPELINE,
+    )
+    from hailo_apps.python.core.common.toolbox import default_preprocess
+    from hailo_apps.python.standalone_apps.pose_estimation.pose_estimation_utils import (
+        PoseEstPostProcessing,
+    )
+except ImportError as e:
+    print(f"Error: hailo-apps not found: {e}")
+    print("Ensure hailo-apps is installed or vendored in /opt/hailo-pose/vendor")
     sys.exit(1)
 
 # Configure logging
@@ -54,21 +72,21 @@ COCO_SKELETON = [
 
 class PoseServiceConfig:
     """Configuration management."""
-    
+
     def __init__(self):
         self.server_host = "0.0.0.0"
         self.server_port = 11436
-        self.model_name = "yolov8s-pose"
+        self.model_name = "yolov8s_pose"
         self.keep_alive = -1
-        
+
         self.confidence_threshold = 0.5
         self.iou_threshold = 0.45
         self.max_detections = 10
         self.input_size = [640, 640]
-        
+
         self.keypoint_threshold = 0.3
         self.skeleton_connections = True
-        
+
         self._load_config()
     
     def _load_config(self):
@@ -110,111 +128,204 @@ class PoseServiceConfig:
 
 class PoseService:
     """Pose estimation service with model lifecycle management."""
-    
+
     def __init__(self, config: PoseServiceConfig):
         self.config = config
-        self.model = None
+        self.infer = None
         self.is_loaded = False
         self.load_time_ms = 0
         self.startup_time = datetime.utcnow()
-    
+        self.model_input_shape = None
+        self.infer_lock = asyncio.Lock()
+
     async def initialize(self):
         """Initialize model and prepare for inference."""
         logger.info(f"Initializing model: {self.config.model_name}")
-        
+
         try:
-            # TODO: Implement HailoRT YOLOv8-pose model loading
-            # This is a placeholder for the actual Hailo integration
-            # In production, this would:
-            # 1. Load the HEF model via HailoRT SDK
-            # 2. Initialize NPU device
-            # 3. Verify device memory and model compatibility
-            # 4. Pre-allocate inference buffers
-            
-            logger.info("Model initialization placeholder (HailoRT YOLOv8-pose)")
+            hef_path = resolve_hef_path(
+                hef_path=self.config.model_name,
+                app_name=POSE_ESTIMATION_PIPELINE,
+                arch=HAILO10H_ARCH,
+            )
+
+            if hef_path is None:
+                raise RuntimeError("Failed to resolve HEF model path")
+
+            logger.info(f"Using HEF: {hef_path}")
+
+            start = time.time()
+            self.infer = HailoInfer(str(hef_path), batch_size=1, output_type="FLOAT32")
+            self.model_input_shape = self.infer.get_input_shape()
+            self.load_time_ms = int((time.time() - start) * 1000)
             self.is_loaded = True
-            
+            logger.info(f"Model loaded in {self.load_time_ms} ms")
         except Exception as e:
             logger.error(f"Model initialization failed: {e}")
             raise
-    
+
+    def _build_post_processor(
+        self,
+        confidence_threshold: float,
+        iou_threshold: float,
+        max_detections: int,
+    ) -> PoseEstPostProcessing:
+        return PoseEstPostProcessing(
+            max_detections=max_detections,
+            score_threshold=confidence_threshold,
+            nms_iou_thresh=iou_threshold,
+            regression_length=15,
+            strides=[8, 16, 32],
+        )
+
+    async def _run_inference(self, input_tensor: np.ndarray) -> Dict[str, np.ndarray]:
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+
+        def callback(completion_info, bindings_list):
+            if completion_info.exception:
+                loop.call_soon_threadsafe(future.set_exception, completion_info.exception)
+                return
+
+            bindings = bindings_list[0]
+            if len(bindings._output_names) == 1:
+                result = bindings.output().get_buffer()
+            else:
+                result = {
+                    name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
+                    for name in bindings._output_names
+                }
+            loop.call_soon_threadsafe(future.set_result, result)
+
+        self.infer.run([input_tensor], callback)
+        return await future
+
     async def detect_poses(
         self,
         image_data: bytes,
-        confidence_threshold: float = None,
-        iou_threshold: float = None,
-        max_detections: int = None,
-        keypoint_threshold: float = None
+        confidence_threshold: Optional[float] = None,
+        iou_threshold: Optional[float] = None,
+        max_detections: Optional[int] = None,
+        keypoint_threshold: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Detect human poses in image."""
-        
-        if not self.is_loaded:
+
+        if not self.is_loaded or not self.infer:
             raise RuntimeError("Model not loaded")
-        
-        # Use config defaults if not provided
-        confidence_threshold = confidence_threshold or self.config.confidence_threshold
-        iou_threshold = iou_threshold or self.config.iou_threshold
-        max_detections = max_detections or self.config.max_detections
-        keypoint_threshold = keypoint_threshold or self.config.keypoint_threshold
-        
+
+        confidence_threshold = (
+            confidence_threshold if confidence_threshold is not None else self.config.confidence_threshold
+        )
+        iou_threshold = iou_threshold if iou_threshold is not None else self.config.iou_threshold
+        max_detections = max_detections if max_detections is not None else self.config.max_detections
+        keypoint_threshold = (
+            keypoint_threshold if keypoint_threshold is not None else self.config.keypoint_threshold
+        )
+
         try:
-            # TODO: Implement actual pose estimation inference
-            # This is a placeholder for HailoRT inference
-            # In production, this would:
-            # 1. Decode image bytes
-            # 2. Preprocess (resize, normalize) to input_size
-            # 3. Run inference on NPU via HailoRT
-            # 4. Post-process outputs:
-            #    - Extract bounding boxes
-            #    - Extract keypoint coordinates (x, y, confidence)
-            #    - Apply NMS (Non-Maximum Suppression)
-            #    - Filter by confidence threshold
-            # 5. Format results in COCO keypoint format
-            
-            # Placeholder response
-            poses = [
-                {
-                    "person_id": 0,
-                    "bbox": {"x": 100, "y": 50, "width": 200, "height": 400},
-                    "bbox_confidence": 0.92,
-                    "keypoints": [
-                        {"name": name, "x": 150 + i * 10, "y": 100 + i * 20, "confidence": 0.85}
-                        for i, name in enumerate(COCO_KEYPOINTS)
-                    ]
-                }
-            ]
-            
-            if self.config.skeleton_connections:
-                for pose in poses:
-                    pose["skeleton"] = [
-                        {
-                            "from": COCO_KEYPOINTS[conn[0] - 1],
-                            "to": COCO_KEYPOINTS[conn[1] - 1],
-                            "from_index": conn[0] - 1,
-                            "to_index": conn[1] - 1
-                        }
-                        for conn in COCO_SKELETON
-                    ]
-            
-            response = {
-                "poses": poses,
-                "count": len(poses),
-                "inference_time_ms": 45,
-                "image_size": {"width": 640, "height": 480}
-            }
-            
-            return response
-            
+            image = Image.open(BytesIO(image_data)).convert("RGB")
+            image_np = np.array(image)
         except Exception as e:
-            logger.error(f"Inference failed: {e}")
-            raise
-    
+            raise ValueError(f"Failed to decode image: {e}")
+
+        orig_h, orig_w = image_np.shape[:2]
+        model_h, model_w, _ = self.model_input_shape
+
+        preprocessed = default_preprocess(image_np, model_w, model_h)
+
+        start = time.time()
+        async with self.infer_lock:
+            raw = await self._run_inference(preprocessed)
+        inference_time_ms = int((time.time() - start) * 1000)
+
+        post_processor = self._build_post_processor(
+            confidence_threshold=confidence_threshold,
+            iou_threshold=iou_threshold,
+            max_detections=max_detections,
+        )
+
+        results = post_processor.post_process(raw, model_h, model_w, class_num=1)
+        bboxes = results["bboxes"][0]
+        keypoints = results["keypoints"][0]
+        joint_scores = results["joint_scores"][0]
+        scores = results["scores"][0]
+
+        poses = []
+        for idx in range(min(len(bboxes), max_detections)):
+            if scores[idx][0] < confidence_threshold:
+                continue
+
+            bbox = post_processor.map_box_to_original_coords(
+                bboxes[idx].tolist(),
+                orig_w,
+                orig_h,
+                model_w,
+                model_h,
+            )
+            xmin, ymin, xmax, ymax = bbox
+
+            mapped_keypoints = post_processor.map_keypoints_to_original_coords(
+                keypoints[idx].copy(),
+                orig_w,
+                orig_h,
+                model_w,
+                model_h,
+            )
+
+            kp_scores = joint_scores[idx].reshape(-1)
+            pose_keypoints = []
+            for kp_index, name in enumerate(COCO_KEYPOINTS):
+                pose_keypoints.append(
+                    {
+                        "name": name,
+                        "x": int(mapped_keypoints[kp_index][0]),
+                        "y": int(mapped_keypoints[kp_index][1]),
+                        "confidence": float(kp_scores[kp_index]),
+                    }
+                )
+
+            pose = {
+                "person_id": len(poses),
+                "bbox": {
+                    "x": int(xmin),
+                    "y": int(ymin),
+                    "width": int(xmax - xmin),
+                    "height": int(ymax - ymin),
+                },
+                "bbox_confidence": float(scores[idx][0]),
+                "keypoints": pose_keypoints,
+            }
+
+            if self.config.skeleton_connections:
+                pose["skeleton"] = [
+                    {
+                        "from": COCO_KEYPOINTS[pair[0] - 1],
+                        "to": COCO_KEYPOINTS[pair[1] - 1],
+                        "from_index": pair[0] - 1,
+                        "to_index": pair[1] - 1,
+                    }
+                    for pair in COCO_SKELETON
+                    if kp_scores[pair[0] - 1] >= keypoint_threshold
+                    and kp_scores[pair[1] - 1] >= keypoint_threshold
+                ]
+
+            poses.append(pose)
+
+        response = {
+            "poses": poses,
+            "count": len(poses),
+            "inference_time_ms": inference_time_ms,
+            "image_size": {"width": orig_w, "height": orig_h},
+        }
+
+        return response
+
     async def shutdown(self):
         """Unload model and clean up resources."""
-        if self.model:
+        if self.infer:
             logger.info("Unloading model")
-            # TODO: Properly unload HailoRT model
-            self.model = None
+            self.infer.close()
+            self.infer = None
             self.is_loaded = False
 
 class APIHandler:
@@ -313,11 +424,21 @@ class APIHandler:
                         status=400
                     )
                 
-                params = {
-                    k: payload.get(k) for k in 
-                    ['confidence_threshold', 'iou_threshold', 'max_detections', 'keypoint_threshold']
-                    if k in payload
-                }
+                def _as_float(value):
+                    return float(value) if value is not None else None
+
+                def _as_int(value):
+                    return int(value) if value is not None else None
+
+                params = {}
+                if 'confidence_threshold' in payload:
+                    params['confidence_threshold'] = _as_float(payload.get('confidence_threshold'))
+                if 'iou_threshold' in payload:
+                    params['iou_threshold'] = _as_float(payload.get('iou_threshold'))
+                if 'keypoint_threshold' in payload:
+                    params['keypoint_threshold'] = _as_float(payload.get('keypoint_threshold'))
+                if 'max_detections' in payload:
+                    params['max_detections'] = _as_int(payload.get('max_detections'))
             
             # Run inference
             try:
@@ -353,6 +474,7 @@ async def create_app(service: PoseService) -> web.Application:
 
 async def main():
     """Main entry point."""
+    service = None
     try:
         # Load configuration
         config = PoseServiceConfig()
@@ -383,7 +505,8 @@ async def main():
         logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
     finally:
-        await service.shutdown()
+        if service is not None:
+            await service.shutdown()
 
 if __name__ == '__main__':
     asyncio.run(main())
