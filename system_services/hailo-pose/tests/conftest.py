@@ -10,7 +10,7 @@ def pytest_addoption(parser):
     parser.addoption(
         "--service-url",
         action="store",
-        default="http://localhost:11436",
+        default="http://localhost:11440",
         help="Base URL for hailo-pose service"
     )
 

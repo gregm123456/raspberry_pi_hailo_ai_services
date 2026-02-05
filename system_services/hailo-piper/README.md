@@ -1,6 +1,6 @@
 # Hailo Piper TTS Service
 
-Deploys Piper TTS (Text-to-Speech) as a managed systemd service on Raspberry Pi 5, exposing a REST API on port 5002 for high-quality speech synthesis.
+Deploys Piper TTS (Text-to-Speech) as a managed systemd service on Raspberry Pi 5, exposing a REST API on port 5003 for high-quality speech synthesis.
 
 ## Features
 
@@ -62,7 +62,7 @@ Edit the operator-facing YAML at `/etc/hailo/hailo-piper.yaml`:
 ```yaml
 server:
   host: 0.0.0.0
-  port: 5002
+  port: 5003
   debug: false
 
 piper:
@@ -90,13 +90,13 @@ sudo systemctl restart hailo-piper.service
 ### Check Service Health:
 
 ```bash
-curl http://localhost:5002/health
+curl http://localhost:5003/health
 ```
 
 ### Synthesize Speech (OpenAI-compatible):
 
 ```bash
-curl -X POST http://localhost:5002/v1/audio/speech \
+curl -X POST http://localhost:5003/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{"input": "Hello from Hailo Piper TTS!"}' \
   --output speech.wav
@@ -108,7 +108,7 @@ aplay speech.wav
 ### Synthesize with Parameters:
 
 ```bash
-curl -X POST http://localhost:5002/v1/audio/speech \
+curl -X POST http://localhost:5003/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
     "input": "The quick brown fox jumps over the lazy dog.",
@@ -121,7 +121,7 @@ curl -X POST http://localhost:5002/v1/audio/speech \
 ### Alternative Synthesis Endpoint:
 
 ```bash
-curl -X POST http://localhost:5002/v1/synthesize \
+curl -X POST http://localhost:5003/v1/synthesize \
   -H "Content-Type: application/json" \
   -d '{"text": "Testing Piper TTS"}' \
   --output test.wav
@@ -130,7 +130,7 @@ curl -X POST http://localhost:5002/v1/synthesize \
 ### List Available Voices:
 
 ```bash
-curl http://localhost:5002/v1/voices
+curl http://localhost:5003/v1/voices
 ```
 
 ## Service Management
@@ -170,7 +170,7 @@ import requests
 
 def synthesize_speech(text: str, output_file: str):
     response = requests.post(
-        "http://localhost:5002/v1/audio/speech",
+        "http://localhost:5003/v1/audio/speech",
         json={"input": text},
         timeout=30
     )
@@ -192,7 +192,7 @@ synthesize_speech("Hello world!", "output.wav")
 TEXT="$1"
 OUTPUT="${2:-speech.wav}"
 
-curl -X POST http://localhost:5002/v1/audio/speech \
+curl -X POST http://localhost:5003/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d "{\"input\": \"${TEXT}\"}" \
   --output "${OUTPUT}" \

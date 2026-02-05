@@ -56,12 +56,12 @@ sudo journalctl -u hailo-pose.service -f
 Test with an image file:
 ```bash
 # Using multipart/form-data
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@person.jpg"
 
 # Using base64-encoded image
 base64 person.jpg | tr -d '\n' > person.b64
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -H "Content-Type: application/json" \
   -d "{\"image\": \"$(cat person.b64)\"}"
 ```
@@ -98,7 +98,7 @@ Edit `/etc/hailo/hailo-pose.yaml`:
 ```yaml
 server:
   host: 0.0.0.0
-  port: 11436
+  port: 11440
 
 model:
   name: "yolov8s_pose"
@@ -161,7 +161,7 @@ ls -l /dev/hailo0
 hailortcli fw-control identify
 
 # Test health endpoint
-curl http://localhost:11436/health
+curl http://localhost:11440/health
 ```
 
 ## Uninstallation
@@ -195,7 +195,7 @@ pytest test_hailo_pose_service.py -v
 
 2. Test with sample image:
    ```bash
-   curl -X POST http://localhost:11436/v1/pose/detect \
+   curl -X POST http://localhost:11440/v1/pose/detect \
      -F "image=@test_image.jpg" | jq
    ```
 

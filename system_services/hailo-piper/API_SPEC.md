@@ -2,7 +2,7 @@
 
 REST API for text-to-speech synthesis using Piper TTS models on Raspberry Pi 5.
 
-**Base URL:** `http://localhost:5002`
+**Base URL:** `http://localhost:5003`
 
 ## Endpoints
 
@@ -96,7 +96,7 @@ Binary audio data (WAV format)
 **Example:**
 
 ```bash
-curl -X POST http://localhost:5002/v1/audio/speech \
+curl -X POST http://localhost:5003/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{"input": "Hello world!"}' \
   --output speech.wav
@@ -136,7 +136,7 @@ Binary audio data (WAV format)
 **Example:**
 
 ```bash
-curl -X POST http://localhost:5002/v1/synthesize \
+curl -X POST http://localhost:5003/v1/synthesize \
   -H "Content-Type: application/json" \
   -d '{"text": "Testing Piper TTS"}' \
   --output test.wav
@@ -179,7 +179,7 @@ Get information about available voice models.
 **Example:**
 
 ```bash
-curl http://localhost:5002/v1/voices
+curl http://localhost:5003/v1/voices
 ```
 
 ---
@@ -268,7 +268,7 @@ import requests
 from pathlib import Path
 
 class PiperTTSClient:
-    def __init__(self, base_url="http://localhost:5002"):
+    def __init__(self, base_url="http://localhost:5003"):
         self.base_url = base_url
     
     def health(self):
@@ -307,7 +307,7 @@ const axios = require('axios');
 const fs = require('fs');
 
 class PiperTTSClient {
-  constructor(baseURL = 'http://localhost:5002') {
+  constructor(baseURL = 'http://localhost:5003') {
     this.baseURL = baseURL;
   }
 

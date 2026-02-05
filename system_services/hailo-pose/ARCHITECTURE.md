@@ -12,7 +12,7 @@ The Hailo Pose service provides YOLOv8-based pose estimation on the Hailo-10H NP
 │          (Python, curl, JavaScript, etc.)               │
 └─────────────────────┬───────────────────────────────────┘
                       │ HTTP REST API
-                      │ (port 11436)
+                      │ (port 11440)
 ┌─────────────────────▼───────────────────────────────────┐
 │              hailo-pose-server (Python)                  │
 │  ┌───────────────────────────────────────────────────┐  │
@@ -279,7 +279,7 @@ Client receives result
 
 ### Network Security
 
-- Service binds to `0.0.0.0:11436` by default (all interfaces)
+- Service binds to `0.0.0.0:11440` by default (all interfaces)
 - **No authentication** by default (local network trust model)
 - **For production:** Use reverse proxy (nginx) with authentication
 
@@ -301,7 +301,7 @@ Error: Cannot load model 'yolov8s_pose.hef'
 
 **Port already in use:**
 ```
-Error: Address already in use (port 11436)
+Error: Address already in use (port 11440)
 → Solution: Change port in config or stop conflicting service
 ```
 
@@ -333,12 +333,12 @@ systemctl status hailo-pose.service
 
 **HTTP health endpoint:**
 ```bash
-curl http://localhost:11436/health
+curl http://localhost:11440/health
 ```
 
 **Readiness probe:**
 ```bash
-curl http://localhost:11436/health/ready
+curl http://localhost:11440/health/ready
 ```
 
 ### Logging

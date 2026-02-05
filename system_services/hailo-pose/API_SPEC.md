@@ -1,6 +1,6 @@
 # Hailo Pose API Specification
 
-Base URL: `http://localhost:11436`
+Base URL: `http://localhost:11440`
 
 This service provides YOLOv8-based pose estimation, detecting human keypoints and skeleton connections in COCO format.
 
@@ -38,7 +38,7 @@ Health check endpoint. Returns service status and model information.
 
 **Example:**
 ```bash
-curl http://localhost:11436/health
+curl http://localhost:11440/health
 ```
 
 ---
@@ -92,7 +92,7 @@ The endpoint accepts two input formats:
 #### 1. Multipart Form Data (Recommended for Binary Images)
 
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@person.jpg" \
   -F "confidence_threshold=0.6" \
   -F "max_detections=5"
@@ -108,7 +108,7 @@ curl -X POST http://localhost:11436/v1/pose/detect \
 #### 2. JSON with Base64 Image
 
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -H "Content-Type: application/json" \
   -d '{
     "image": "data:image/jpeg;base64,/9j/4AAQSkZJ...",
@@ -225,14 +225,14 @@ curl -X POST http://localhost:11436/v1/pose/detect \
 #### Detect Poses in Image File
 
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@person.jpg" | jq
 ```
 
 #### Detect with Custom Thresholds
 
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@group.jpg" \
   -F "confidence_threshold=0.7" \
   -F "keypoint_threshold=0.4" \
@@ -243,7 +243,7 @@ curl -X POST http://localhost:11436/v1/pose/detect \
 
 ```bash
 IMAGE_B64=$(base64 -w 0 person.jpg)
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -H "Content-Type: application/json" \
   -d "{\"image\": \"$IMAGE_B64\", \"confidence_threshold\": 0.6}"
 ```
@@ -255,7 +255,7 @@ import requests
 
 with open('person.jpg', 'rb') as f:
     response = requests.post(
-        'http://localhost:11436/v1/pose/detect',
+        'http://localhost:11440/v1/pose/detect',
         files={'image': f},
         data={'confidence_threshold': 0.6}
     )
@@ -281,7 +281,7 @@ _, buffer = cv2.imencode('.jpg', img)
 files = {'image': ('image.jpg', buffer.tobytes(), 'image/jpeg')}
 
 # Detect poses
-response = requests.post('http://localhost:11436/v1/pose/detect', files=files)
+response = requests.post('http://localhost:11440/v1/pose/detect', files=files)
 result = response.json()
 
 # Draw keypoints and skeleton
@@ -346,7 +346,7 @@ Standard HTTP status codes:
 ### Fitness Tracking
 Detect body posture and joint angles for exercise form analysis:
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@squat.jpg" \
   -F "confidence_threshold=0.7"
 ```
@@ -354,7 +354,7 @@ curl -X POST http://localhost:11436/v1/pose/detect \
 ### Fall Detection
 Monitor elderly persons for fall detection:
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@camera_frame.jpg" \
   -F "keypoint_threshold=0.5"
 ```
@@ -362,7 +362,7 @@ curl -X POST http://localhost:11436/v1/pose/detect \
 ### Motion Capture
 Track human motion for animation or analysis:
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@dance_frame.jpg" \
   -F "max_detections=5"
 ```
@@ -370,7 +370,7 @@ curl -X POST http://localhost:11436/v1/pose/detect \
 ### Sports Analytics
 Analyze athlete performance and technique:
 ```bash
-curl -X POST http://localhost:11436/v1/pose/detect \
+curl -X POST http://localhost:11440/v1/pose/detect \
   -F "image=@basketball_shot.jpg" \
   -F "confidence_threshold=0.8"
 ```

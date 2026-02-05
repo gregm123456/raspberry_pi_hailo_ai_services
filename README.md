@@ -93,6 +93,12 @@ sudo systemctl status hailo-ollama
 journalctl -u hailo-ollama -f
 ```
 
+Show all hailo-* services:
+
+```
+systemctl list-units --type=service --all 'hailo-*' --no-legend --no-pager
+```
+
 ## Project Structure
 
 ```

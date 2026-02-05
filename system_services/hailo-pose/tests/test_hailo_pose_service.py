@@ -11,7 +11,7 @@ from typing import Dict, Any
 import time
 
 
-BASE_URL = "http://localhost:11436"
+BASE_URL = "http://localhost:11440"
 SERVICE_NAME = "hailo-pose"
 
 

@@ -100,7 +100,7 @@ Validates and converts YAML to JSON during installation.
 **Lifecycle:**
 1. systemd starts service
 2. Python script loads Piper model
-3. Flask server binds to port 5002
+3. Flask server binds to port 5003
 4. Service enters ready state
 5. Handles synthesis requests
 6. On shutdown, graceful cleanup
@@ -175,7 +175,7 @@ send_file() → Client
 
 ### Network Exposure
 
-- Default: Listens on all interfaces (0.0.0.0:5002)
+- Default: Listens on all interfaces (0.0.0.0:5003)
 - Recommendation: Use firewall to restrict access
 - No authentication built-in (add reverse proxy for production)
 
@@ -291,7 +291,7 @@ journalctl -u hailo-piper.service -f
 
 ### Port Conflict
 
-**Cause:** Another service using port 5002
+**Cause:** Another service using port 5003
 
 **Detection:** Service fails to start
 

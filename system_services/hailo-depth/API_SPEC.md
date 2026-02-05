@@ -2,8 +2,8 @@
 
 REST API for depth estimation inference via Hailo-10H NPU.
 
-**Base URL:** `http://localhost:11436`  
-**Default Port:** 11436  
+**Base URL:** `http://localhost:11439`  
+**Default Port:** 11439  
 **Protocol:** HTTP/1.1  
 **Content Types:** `application/json`, `multipart/form-data`
 
@@ -117,7 +117,7 @@ REST API for depth estimation inference via Hailo-10H NPU.
 **Example:**
 
 ```bash
-curl -X POST http://localhost:11436/v1/depth/estimate \
+curl -X POST http://localhost:11439/v1/depth/estimate \
   -F "image=@photo.jpg" \
   -F "output_format=both" \
   -F "normalize=true" \
@@ -144,7 +144,7 @@ curl -X POST http://localhost:11436/v1/depth/estimate \
 ```bash
 IMAGE_B64=$(base64 -w 0 < photo.jpg)
 
-curl -X POST http://localhost:11436/v1/depth/estimate \
+curl -X POST http://localhost:11439/v1/depth/estimate \
   -H "Content-Type: application/json" \
   -d "{
     \"image\": \"$IMAGE_B64\",
@@ -330,7 +330,7 @@ from PIL import Image
 def estimate_depth(image_path, output_format='both'):
     with open(image_path, 'rb') as f:
         response = requests.post(
-            'http://localhost:11436/v1/depth/estimate',
+            'http://localhost:11439/v1/depth/estimate',
             files={'image': f},
             data={'output_format': output_format, 'normalize': 'true'}
         )
@@ -364,7 +364,7 @@ OUTPUT_DIR="output"
 mkdir -p "${OUTPUT_DIR}"
 
 # Perform depth estimation
-RESPONSE=$(curl -sS -X POST http://localhost:11436/v1/depth/estimate \
+RESPONSE=$(curl -sS -X POST http://localhost:11439/v1/depth/estimate \
   -F "image=@${IMAGE_PATH}" \
   -F "output_format=both" \
   -F "normalize=true" \

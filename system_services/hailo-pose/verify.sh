@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SERVICE_NAME="hailo-pose"
-DEFAULT_PORT="11436"
+DEFAULT_PORT="11440"
 VENV_PYTHON="/opt/hailo-pose/venv/bin/python3"
 
 log() {
@@ -28,10 +28,10 @@ try:
     with open(path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     server = data.get("server", {}) if isinstance(data, dict) else {}
-    port = server.get("port", 11436)
+    port = server.get("port", 11440)
     print(int(port))
 except Exception:
-    print(11436)
+    print(11440)
 PY
 }
 

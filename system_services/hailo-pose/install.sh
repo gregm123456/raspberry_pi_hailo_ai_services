@@ -22,7 +22,7 @@ ETC_HAILO_CONFIG="/etc/hailo/hailo-pose.yaml"
 ETC_XDG_DIR="/etc/xdg/hailo-pose"
 JSON_CONFIG="${ETC_XDG_DIR}/hailo-pose.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
-DEFAULT_PORT="11436"
+DEFAULT_PORT="11440"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_pose_service.py"
 REQUIREMENTS_SRC="${SCRIPT_DIR}/requirements.txt"
 
@@ -204,10 +204,10 @@ try:
     with open(path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     server = data.get("server", {}) if isinstance(data, dict) else {}
-    port = server.get("port", 11436)
+    port = server.get("port", 11440)
     print(int(port))
 except Exception:
-    print(11436)
+    print(11440)
 PY
 }
 

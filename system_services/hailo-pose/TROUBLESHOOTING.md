@@ -35,14 +35,14 @@ Hailo firmware version: 4.x.x
 
 **Symptoms:**
 ```
-Error: Address already in use (port 11436)
+Error: Address already in use (port 11440)
 ```
 
 **Solution 1: Check what's using the port**
 ```bash
-sudo ss -lntp | grep 11436
+sudo ss -lntp | grep 11440
 # or
-sudo lsof -i :11436
+sudo lsof -i :11440
 ```
 
 **Solution 2: Change port**
@@ -116,7 +116,7 @@ sudo journalctl -u hailo-pose.service -n 100 --no-pager
 
 **Test health endpoint:**
 ```bash
-curl -v http://localhost:11436/health
+curl -v http://localhost:11440/health
 ```
 
 **Common causes:**
@@ -166,7 +166,7 @@ base64 -w 0 image.jpg | sed 's/^/data:image\/jpeg;base64,/'
 
 **Check readiness:**
 ```bash
-curl http://localhost:11436/health/ready
+curl http://localhost:11440/health/ready
 ```
 
 **If not ready:**
@@ -196,7 +196,7 @@ curl http://localhost:11436/health/ready
 ```bash
 # Resize images before sending
 convert large.jpg -resize 640x640 resized.jpg
-curl -X POST http://localhost:11436/v1/pose/detect -F "image=@resized.jpg"
+curl -X POST http://localhost:11440/v1/pose/detect -F "image=@resized.jpg"
 
 # Check NPU utilization
 watch -n 1 'hailortcli fw-control identify'
@@ -362,7 +362,7 @@ sudo systemctl restart hailo-pose.service
    ```bash
    # Parallel requests
    for i in {1..5}; do
-     curl -X POST http://localhost:11436/v1/pose/detect \
+     curl -X POST http://localhost:11440/v1/pose/detect \
        -F "image=@person.jpg" &
    done
    wait
@@ -389,17 +389,17 @@ sudo systemctl restart hailo-pose.service
 ```bash
 sudo ufw status
 # If active, allow port:
-sudo ufw allow 11436/tcp
+sudo ufw allow 11440/tcp
 ```
 
 **Check service binding:**
 ```bash
-sudo ss -lntp | grep 11436
+sudo ss -lntp | grep 11440
 ```
 
-Should show `0.0.0.0:11436` (all interfaces).
+Should show `0.0.0.0:11440` (all interfaces).
 
-If showing `127.0.0.1:11436`, edit config:
+If showing `127.0.0.1:11440`, edit config:
 ```yaml
 server:
   host: 0.0.0.0  # Bind to all interfaces
@@ -430,13 +430,13 @@ echo -e "\n=== Temperature ==="
 vcgencmd measure_temp
 
 echo -e "\n=== Network Ports ==="
-sudo ss -lntp | grep 11436
+sudo ss -lntp | grep 11440
 
 echo -e "\n=== Health Check ==="
-curl -s http://localhost:11436/health | jq
+curl -s http://localhost:11440/health | jq
 
 echo -e "\n=== Readiness Check ==="
-curl -s http://localhost:11436/health/ready | jq
+curl -s http://localhost:11440/health/ready | jq
 ```
 
 Save as `diagnose.sh`, run with `bash diagnose.sh`
@@ -501,7 +501,7 @@ Include:
    Add to system monitoring (e.g., Prometheus):
    ```bash
    # Check health every 60 seconds
-   */1 * * * * curl -f http://localhost:11436/health || systemctl restart hailo-pose.service
+   */1 * * * * curl -f http://localhost:11440/health || systemctl restart hailo-pose.service
    ```
 
 5. **Log Rotation:**

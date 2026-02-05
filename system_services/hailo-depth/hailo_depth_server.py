@@ -57,7 +57,7 @@ class DepthServiceConfig:
     
     def __init__(self):
         self.server_host = "0.0.0.0"
-        self.server_port = 11436
+        self.server_port = 11439
         self.model_name = "scdepthv3"
         self.model_type = "monocular"  # monocular or stereo
         self.keep_alive = -1

@@ -12,7 +12,7 @@ ETC_HAILO_CONFIG="/etc/hailo/hailo-piper.yaml"
 ETC_XDG_DIR="/etc/xdg/hailo-piper"
 JSON_CONFIG="${ETC_XDG_DIR}/hailo-piper.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
-DEFAULT_PORT="5002"
+DEFAULT_PORT="5003"
 SERVICE_DIR="/opt/hailo-piper"
 MODEL_DIR="/var/lib/hailo-piper/models"
 DEFAULT_MODEL="en_US-lessac-medium"
@@ -215,10 +215,10 @@ try:
     with open(path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     server = data.get("server", {}) if isinstance(data, dict) else {}
-    port = server.get("port", 5002)
+    port = server.get("port", 5003)
     print(int(port))
 except Exception:
-    print(5002)
+    print(5003)
 PY
 }
 

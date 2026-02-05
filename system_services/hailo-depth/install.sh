@@ -12,7 +12,7 @@ ETC_HAILO_CONFIG="/etc/hailo/hailo-depth.yaml"
 ETC_XDG_DIR="/etc/xdg/hailo-depth"
 JSON_CONFIG="${ETC_XDG_DIR}/hailo-depth.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
-DEFAULT_PORT="11436"
+DEFAULT_PORT="11439"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_depth_server.py"
 SERVICE_DIR="/opt/hailo-depth"
 VENV_DIR="${SERVICE_DIR}/venv"
@@ -329,10 +329,10 @@ try:
     with open(path, "r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     server = data.get("server", {}) if isinstance(data, dict) else {}
-    port = server.get("port", 11436)
+    port = server.get("port", 11439)
     print(int(port))
 except Exception:
-    print(11436)
+    print(11439)
 PY
 }
 

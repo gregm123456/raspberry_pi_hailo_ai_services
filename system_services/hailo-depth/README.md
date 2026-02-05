@@ -53,8 +53,8 @@ Or manually:
 
 ```bash
 sudo systemctl status hailo-depth.service
-curl http://localhost:11436/health
-curl http://localhost:11436/v1/info
+curl http://localhost:11439/health
+curl http://localhost:11439/v1/info
 ```
 
 ### API Usage
@@ -62,19 +62,19 @@ curl http://localhost:11436/v1/info
 **Health Check:**
 
 ```bash
-curl http://localhost:11436/health
+curl http://localhost:11439/health
 ```
 
 **Service Info:**
 
 ```bash
-curl http://localhost:11436/v1/info
+curl http://localhost:11439/v1/info
 ```
 
 **Depth Estimation (multipart form):**
 
 ```bash
-curl -X POST http://localhost:11436/v1/depth/estimate \
+curl -X POST http://localhost:11439/v1/depth/estimate \
   -F "image=@/path/to/image.jpg" \
   -F "output_format=both" \
   -F "colormap=viridis"
@@ -87,7 +87,7 @@ curl -X POST http://localhost:11436/v1/depth/estimate \
 IMAGE_B64=$(base64 -w 0 < image.jpg)
 
 # Send request
-curl -X POST http://localhost:11436/v1/depth/estimate \
+curl -X POST http://localhost:11439/v1/depth/estimate \
   -H "Content-Type: application/json" \
   -d "{
     \"image\": \"$IMAGE_B64\",
@@ -100,7 +100,7 @@ curl -X POST http://localhost:11436/v1/depth/estimate \
 **Depth Estimation (JSON with image URL):**
 
 ```bash
-curl -X POST http://localhost:11436/v1/depth/estimate \
+curl -X POST http://localhost:11439/v1/depth/estimate \
   -H "Content-Type: application/json" \
   -d "{
     \"image_url\": \"https://example.com/image.jpg\",
@@ -183,7 +183,7 @@ Edit `/etc/hailo/hailo-depth.yaml`:
 ```yaml
 server:
   host: 0.0.0.0
-  port: 11436
+  port: 11439
 
 model:
   name: "scdepthv3"
@@ -290,7 +290,7 @@ with open('image.jpg', 'rb') as f:
 
 # Send request
 response = requests.post(
-    'http://localhost:11436/v1/depth/estimate',
+    'http://localhost:11439/v1/depth/estimate',
     files={'image': image_data},
     data={'output_format': 'both', 'normalize': 'true'}
 )
