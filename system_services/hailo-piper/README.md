@@ -4,12 +4,13 @@ Deploys Piper TTS (Text-to-Speech) as a managed systemd service on Raspberry Pi 
 
 ## Features
 
-- **High-quality TTS:** Natural-sounding speech using Piper TTS models
-- **REST API:** OpenAI-compatible `/v1/audio/speech` endpoint
-- **Multiple voices:** Support for various Piper voice models
-- **Fast synthesis:** Optimized for low-latency speech generation
-- **Persistent service:** Managed by systemd with automatic restarts
-- **Configurable:** YAML-based configuration for easy customization
+**High-quality TTS:** Natural-sounding speech using Piper TTS models
+**REST API:** OpenAI-compatible `/v1/audio/speech` endpoint
+**Multiple voices:** Support for various Piper voice models
+**Fast synthesis:** Optimized for low-latency speech generation
+**CPU-only:** No Hailo NPU acceleration; runs entirely on Raspberry Pi 5 CPU
+**Persistent service:** Managed by systemd with automatic restarts
+**Configurable:** YAML-based configuration for easy customization
 
 ## Prerequisites
 
@@ -18,7 +19,7 @@ Deploys Piper TTS (Text-to-Speech) as a managed systemd service on Raspberry Pi 
 - Python dependencies: `python3-yaml`, `python3-numpy`
 - **Piper TTS 1.3.0** (specific version required - see note below)
 
-**No Hailo device required** - Piper TTS runs on CPU.
+**No Hailo device required** — Piper TTS runs on CPU only (not accelerated by Hailo NPU).
 
 ### ⚠️ Important: Piper TTS Version Compatibility
 

@@ -36,9 +36,9 @@ This project establishes standardized patterns for wrapping Hailo-accelerated AI
 - **hailo-ocr** — Optical character recognition (PaddleOCR, Hailo-10H accelerated, production-ready)
 - **hailo-pose** — Human pose estimation (YOLOv8 keypoints, COCO format, production-ready)
 - **hailo-whisper** — Speech-to-text transcription (Whisper models, OpenAI Whisper API-compatible, production-ready)
+- **hailo-piper** — Text-to-speech synthesis (Piper TTS, CPU-only; production-ready)
 
 ### Draft/Experimental Services
-- **hailo-piper** — Text-to-speech synthesis (Piper TTS)
 - **hailo-depth** — Monocular and stereo depth estimation
 - **hailo-face** — Face detection and embedding comparison
 - **hailo-scrfd** — Specialized face detection (SCRFD)
