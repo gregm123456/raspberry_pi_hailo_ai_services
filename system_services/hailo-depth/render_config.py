@@ -66,9 +66,21 @@ def validate_schema(config: Dict[str, Any]) -> None:
         raise RuntimeError("'output' must be a dictionary")
     
     # Validate output format
-    valid_formats = ['numpy', 'image', 'both']
+    valid_formats = ['numpy', 'image', 'both', 'depth_png_16']
     if output.get('format') not in valid_formats:
         raise RuntimeError(f"'output.format' must be one of: {valid_formats}")
+    
+    # Optional: validate input section if present
+    if 'input' in config:
+        input_cfg = config.get('input', {})
+        if not isinstance(input_cfg, dict):
+            raise RuntimeError("'input' must be a dictionary")
+    
+    # Optional: validate resources section if present
+    if 'resources' in config:
+        resources = config.get('resources', {})
+        if not isinstance(resources, dict):
+            raise RuntimeError("'resources' must be a dictionary")
 
 
 def render_config(input_path: str, output_path: str) -> None:

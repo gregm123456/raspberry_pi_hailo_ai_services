@@ -14,12 +14,30 @@ model:
   keep_alive: -1
 
 output:
-  # Output format: numpy (base64 npz), image (colorized PNG), or both
+  # Output format: numpy (base64 npz), image (colorized PNG), both, or depth_png_16 (16-bit PNG)
   format: "both"
   # Colormap for depth visualization: viridis, plasma, magma, turbo, jet
   colormap: "viridis"
   # Normalize depth values to 0-1 range
   normalize: true
+  # Include depth statistics in response
+  include_stats: true
+  # Also output 16-bit PNG depth format (uses depth_png_16 field)
+  depth_png_16: false
+
+input:
+  # Allow image file paths as input (security: disabled by default)
+  allow_local_paths: false
+  # Allow image_url input for remote images
+  allow_image_url: true
+  # Maximum image file size in MB
+  max_image_mb: 50
+
+resources:
+  # Model directory (HEF files)
+  model_dir: /var/lib/hailo-depth/resources/models
+  # Postprocess libraries directory
+  postprocess_dir: /var/lib/hailo-depth/resources/postprocess
 
 # Optional resource limits (tunable)
 resource_limits:

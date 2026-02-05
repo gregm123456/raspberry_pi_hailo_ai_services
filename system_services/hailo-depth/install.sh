@@ -14,7 +14,13 @@ JSON_CONFIG="${ETC_XDG_DIR}/hailo-depth.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 DEFAULT_PORT="11436"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_depth_server.py"
-INSTALL_TARGET="/usr/local/bin/hailo-depth-server"
+SERVICE_DIR="/opt/hailo-depth"
+VENV_DIR="${SERVICE_DIR}/venv"
+VENDOR_DIR="${SERVICE_DIR}/vendor"
+HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
+HAILO_APPS_VENDOR_PATH="${VENDOR_DIR}/hailo-apps"
+REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
+INSTALL_TARGET="${VENV_DIR}/bin/python"
 
 WARMUP_MODEL=""
 
@@ -68,22 +74,63 @@ PY
 }
 
 check_python_packages() {
-    log "Checking required Python packages..."
-    if ! python3 - <<'PY' >/dev/null 2>&1
-import aiohttp
-import numpy
-import PIL
-PY
-    then
-        error "Missing required Python packages."
-        error ""
-        error "Install with:"
-        error "  pip3 install aiohttp numpy pillow pyyaml matplotlib"
-        error ""
-        error "Or via apt:"
-        error "  sudo apt install python3-aiohttp python3-numpy python3-pil python3-yaml python3-matplotlib"
+    # Skip this check - packages will be installed in venv
+    log "Python packages will be installed in venv"
+}
+
+create_venv() {
+    log "Creating Python virtual environment with system site packages"
+    mkdir -p "${SERVICE_DIR}"
+    rm -rf "${VENV_DIR}"
+    python3 -m venv --system-site-packages "${VENV_DIR}"
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}"
+}
+
+vendor_hailo_apps() {
+    log "Vendoring hailo-apps into ${HAILO_APPS_VENDOR_PATH}"
+    # Ensure source exists
+    if [[ ! -d "${HAILO_APPS_SRC}" ]]; then
+        error "hailo-apps source not found at ${HAILO_APPS_SRC}. Is submodule initialized?"
         exit 1
     fi
+
+    rm -rf "${HAILO_APPS_VENDOR_PATH}"
+    mkdir -p "${VENDOR_DIR}"
+
+    # Copy the hailo-apps repo into /opt so the systemd service user doesn't need
+    # access to a developer home directory.
+    cp -a "${HAILO_APPS_SRC}" "${VENDOR_DIR}/"
+
+    # Patch resources path in vendored defines.py to use a writable directory
+    # within the service's state directory.
+    sed -i "s|RESOURCES_ROOT_PATH_DEFAULT = \"/usr/local/hailo/resources\"|RESOURCES_ROOT_PATH_DEFAULT = \"/var/lib/hailo-depth/resources\"|g" "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/core/common/defines.py" || log "Note: defines.py path may differ"
+
+    # Fix package structure by adding missing __init__.py files
+    # These are required for proper namespacing and module resolution
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/__init__.py" 2>/dev/null || true
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/__init__.py" 2>/dev/null || true
+    touch "${HAILO_APPS_VENDOR_PATH}/hailo_apps/python/core/__init__.py" 2>/dev/null || true
+
+    # Ensure readable by the service user
+    chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${VENDOR_DIR}"
+    chmod -R u+rX,g+rX,o-rwx "${VENDOR_DIR}"
+
+    log "✓ hailo-apps vendored successfully"
+}
+
+install_python_packages() {
+    log "Installing Python packages into venv"
+    
+    if [[ ! -f "${REQUIREMENTS_FILE}" ]]; then
+        error "requirements.txt not found at ${REQUIREMENTS_FILE}"
+        exit 1
+    fi
+
+    # Use venv Python to install packages
+    "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
+    "${VENV_DIR}/bin/pip" install -r "${REQUIREMENTS_FILE}"
+    
+    log "✓ Python packages installed"
 }
 
 preflight_hailo() {
@@ -98,6 +145,24 @@ preflight_hailo() {
         fi
     else
         warn "hailortcli not found; skipping firmware verification."
+    fi
+}
+
+preflight_hailo_hailort() {
+    # Check for HailoRT Python bindings in system site-packages
+    if ! python3 - <<'PY' >/dev/null 2>&1
+try:
+    import hailo_platform
+    print("OK")
+except ImportError:
+    raise
+PY
+    then
+        error "HailoRT Python bindings (hailo_platform) not found in system site-packages."
+        error ""
+        error "Ensure python3-h10-hailort or python3-hailo is installed:"
+        error "  sudo apt install python3-h10-hailort"
+        exit 1
     fi
 }
 
@@ -133,11 +198,99 @@ configure_device_permissions() {
 
 create_state_directories() {
     log "Creating service directory structure"
-    mkdir -p /var/lib/hailo-depth/models
+    mkdir -p /var/lib/hailo-depth/resources/models
+    mkdir -p /var/lib/hailo-depth/resources/postprocess
     mkdir -p /var/lib/hailo-depth/cache
 
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/lib/hailo-depth
     chmod -R u+rwX,g+rX,o-rwx /var/lib/hailo-depth
+}
+
+download_models() {
+    log "Downloading model artifacts from Hailo Model Zoo"
+    local model_dir="/var/lib/hailo-depth/resources/models"
+    local model_name="${1:-scdepthv3}"
+    local hef_file="${model_dir}/${model_name}.hef"
+    
+    # Check if model already exists
+    if [[ -f "${hef_file}" ]]; then
+        log "✓ Model ${model_name} already exists at ${hef_file}"
+        return 0
+    fi
+    
+    # Model download URLs for Hailo-10H, v5.2.0 (declared with declare -A)
+    declare -A model_urls
+    model_urls[scdepthv3]="https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.2.0/hailo10h/scdepthv3.hef"
+    model_urls[fast_depth]="https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.2.0/hailo10h/fast_depth.hef"
+    
+    if [[ -z "${model_urls[$model_name]}" ]]; then
+        error "Unknown model: ${model_name}. Available: $(echo "${!model_urls[@]}" | tr ' ' ', ')"
+        return 1
+    fi
+    
+    local url="${model_urls[$model_name]}"
+    log "Downloading ${model_name}.hef from Hailo Model Zoo"
+    log "  URL: ${url}"
+    log "  Destination: ${hef_file}"
+    
+    if ! command -v curl >/dev/null 2>&1; then
+        error "curl is required to download models. Install with: sudo apt install curl"
+        return 1
+    fi
+    
+    if ! curl -fsSL --progress-bar -o "${hef_file}" "${url}"; then
+        error "Failed to download model from ${url}"
+        rm -f "${hef_file}"
+        return 1
+    fi
+    
+    # Verify download
+    local file_size
+    file_size=$(stat -c%s "${hef_file}" 2>/dev/null)
+    if [[ ${file_size} -lt 1000000 ]]; then
+        error "Downloaded file seems too small (${file_size} bytes). May be corrupted."
+        rm -f "${hef_file}"
+        return 1
+    fi
+    
+    log "✓ Model downloaded successfully: $((file_size / 1024 / 1024)) MB"
+    
+        # Fix ownership to service user
+        chown "${SERVICE_USER}:${SERVICE_GROUP}" "${hef_file}"
+        chmod 644 "${hef_file}"
+    return 0
+}
+
+validate_model_hef() {
+    local hef_file="$1"
+    
+    if [[ ! -f "${hef_file}" ]]; then
+        warn "HEF file not found at ${hef_file}"
+        return 1
+    fi
+    
+    log "Validating HEF file: ${hef_file}"
+    local file_size
+    file_size=$(stat -c%s "${hef_file}")
+    
+    if [[ ${file_size} -lt 1000000 ]]; then
+        warn "HEF file seems small (${file_size} bytes), may be invalid"
+        return 1
+    fi
+    
+    log "✓ HEF file size OK: $((file_size / 1024 / 1024)) MB"
+    return 0
+}
+
+copy_postprocess_files() {
+    log "Setting up postprocess libraries"
+    local postprocess_dir="/var/lib/hailo-depth/resources/postprocess"
+    
+    # TODO: Copy or compile postprocess libraries
+    # Source: /opt/hailo-depth/vendor/hailo-apps/hailo_apps/python/postprocess/
+    
+    log "Note: Postprocess libraries will be resolved at runtime (Phase 2)"
+    return 0
 }
 
 install_config() {
@@ -155,13 +308,15 @@ install_config() {
 }
 
 install_server_script() {
+    log "Installing server script to ${SERVICE_DIR}"
+    
     if [[ ! -f "${SERVER_SCRIPT}" ]]; then
         error "Server script not found: ${SERVER_SCRIPT}"
         exit 1
     fi
 
-    log "Installing server script to ${INSTALL_TARGET}"
-    install -m 0755 "${SERVER_SCRIPT}" "${INSTALL_TARGET}"
+    install -m 0755 "${SERVER_SCRIPT}" "${SERVICE_DIR}/hailo_depth_server.py"
+    chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/hailo_depth_server.py"
 }
 
 get_config_port() {
@@ -253,12 +408,19 @@ main() {
     parse_args "$@"
     require_root
     preflight_hailo
+    preflight_hailo_hailort
     check_python_yaml
-    check_python_packages
 
     create_user_group
+    create_venv
+    install_python_packages
+    vendor_hailo_apps
+
     configure_device_permissions
     create_state_directories
+    download_models "scdepthv3"
+    validate_model_hef "/var/lib/hailo-depth/resources/models/scdepthv3.hef"
+    copy_postprocess_files
     install_config
     install_server_script
 
@@ -274,6 +436,7 @@ main() {
     fi
 
     log "Install complete. Config: ${ETC_HAILO_CONFIG}"
+    log "Service directory: ${SERVICE_DIR}"
     log "Start service: sudo systemctl start ${SERVICE_NAME}.service"
     log "View logs: sudo journalctl -u ${SERVICE_NAME}.service -f"
     log "API endpoint: POST http://localhost:${port}/v1/depth/estimate"

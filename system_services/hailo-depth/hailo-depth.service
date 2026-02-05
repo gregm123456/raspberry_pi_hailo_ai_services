@@ -9,7 +9,7 @@ Type=simple
 User=hailo-depth
 Group=hailo-depth
 
-# Set working directory for log file creation
+# Set working directory
 WorkingDirectory=/var/lib/hailo-depth
 
 # Ensure writable state dir exists and is owned correctly
@@ -27,7 +27,10 @@ Environment=HAILO_PRINT_TO_SYSLOG=1
 # Python unbuffered output for real-time logging
 Environment=PYTHONUNBUFFERED=1
 
-ExecStart=/usr/local/bin/hailo-depth-server
+# Use the venv Python with proper PYTHONPATH
+Environment="PYTHONPATH=/opt/hailo-depth/vendor/hailo-apps:/opt/hailo-depth/vendor/hailo-apps/hailo_apps"
+
+ExecStart=/opt/hailo-depth/venv/bin/python /opt/hailo-depth/hailo_depth_server.py
 
 Restart=always
 RestartSec=5

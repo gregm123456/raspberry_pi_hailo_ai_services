@@ -8,7 +8,7 @@ SERVICE_GROUP="hailo-depth"
 UNIT_DEST="/etc/systemd/system/hailo-depth.service"
 ETC_HAILO_CONFIG="/etc/hailo/hailo-depth.yaml"
 ETC_XDG_DIR="/etc/xdg/hailo-depth"
-INSTALL_TARGET="/usr/local/bin/hailo-depth-server"
+SERVICE_DIR="/opt/hailo-depth"
 
 log() {
     echo "[hailo-depth] $*"
@@ -46,9 +46,9 @@ main() {
         systemctl daemon-reload
     fi
 
-    log "Removing server binary"
-    if [[ -f "${INSTALL_TARGET}" ]]; then
-        rm -f "${INSTALL_TARGET}"
+    log "Removing service directory (${SERVICE_DIR})"
+    if [[ -d "${SERVICE_DIR}" ]]; then
+        rm -rf "${SERVICE_DIR}"
     fi
 
     log "Removing configuration (optional: comment to keep)"

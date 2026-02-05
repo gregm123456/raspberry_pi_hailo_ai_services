@@ -32,10 +32,16 @@ sudo ./install.sh
 
 The installer will:
 1. Create system user and group (`hailo-depth`)
-2. Configure device permissions for `/dev/hailo0`
-3. Install configuration to `/etc/hailo/hailo-depth.yaml`
-4. Install systemd service unit
-5. Start and enable the service
+2. Create isolated Python venv at `/opt/hailo-depth/venv`
+3. Install dependencies (aiohttp, numpy, pillow, etc.) into venv
+4. Vendor hailo-apps submodule to `/opt/hailo-depth/vendor/hailo-apps`
+5. Configure device permissions for `/dev/hailo0`
+6. Create state directories: `/var/lib/hailo-depth/resources/{models,postprocess}/`
+7. Install configuration to `/etc/hailo/hailo-depth.yaml`
+8. Render JSON config to `/etc/xdg/hailo-depth/hailo-depth.json`
+9. Install and enable systemd service
+
+**Important:** The installer creates placeholders for model artifacts. You must download `scdepthv3.hef` and place it in `/var/lib/hailo-depth/resources/models/`. See [MODEL_ACQUISITION.md](MODEL_ACQUISITION.md) for download instructions.
 
 ### Verification
 
@@ -48,6 +54,7 @@ Or manually:
 ```bash
 sudo systemctl status hailo-depth.service
 curl http://localhost:11436/health
+curl http://localhost:11436/v1/info
 ```
 
 ### API Usage
@@ -56,6 +63,12 @@ curl http://localhost:11436/health
 
 ```bash
 curl http://localhost:11436/health
+```
+
+**Service Info:**
+
+```bash
+curl http://localhost:11436/v1/info
 ```
 
 **Depth Estimation (multipart form):**
@@ -84,6 +97,18 @@ curl -X POST http://localhost:11436/v1/depth/estimate \
   }"
 ```
 
+**Depth Estimation (JSON with image URL):**
+
+```bash
+curl -X POST http://localhost:11436/v1/depth/estimate \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"image_url\": \"https://example.com/image.jpg\",
+    \"output_format\": \"both\",
+    \"normalize\": true
+  }"
+```
+
 **Response:**
 
 ```json
@@ -94,9 +119,61 @@ curl -X POST http://localhost:11436/v1/depth/estimate \
   "depth_shape": [480, 640],
   "inference_time_ms": 42.5,
   "normalized": true,
+  "stats": {
+    "min": 0.05,
+    "max": 0.95,
+    "mean": 0.42,
+    "p95": 0.89
+  },
   "depth_map": "<base64-encoded NPZ>",
   "depth_image": "<base64-encoded PNG>"
 }
+```
+
+**Output Formats:**
+- `numpy`: Base64-encoded NPZ file with `depth` array (NumPy format)
+- `image`: Base64-encoded colorized PNG using specified colormap
+- `both`: Both NumPy and image outputs
+- `depth_png_16`: 16-bit grayscale PNG (high precision, smaller than numpy)
+
+## Project Structure
+
+After installation, the service consists of:
+
+**Service Code & Runtime:**
+```
+/opt/hailo-depth/
+├── venv/                           # Isolated Python environment
+│   └── bin/python                 # Service Python executable
+├── vendor/hailo-apps/             # Vendored hailo-apps submodule
+├── hailo_depth_server.py          # Main service script
+└── render_config.py               # Config YAML → JSON converter
+```
+
+**Configuration:**
+```
+/etc/hailo/
+└── hailo-depth.yaml               # User-editable config (YAML)
+
+/etc/xdg/hailo-depth/
+└── hailo-depth.json               # Runtime config (JSON, auto-rendered)
+```
+
+**State & Resources:**
+```
+/var/lib/hailo-depth/
+├── resources/
+│   ├── models/                    # HEF model files
+│   │   └── scdepthv3.hef
+│   └── postprocess/               # Postprocess libraries
+├── cache/                         # Temporary inference data
+└── hailo-depth.state              # systemd state file
+```
+
+**System Integration:**
+```
+/etc/systemd/system/
+└── hailo-depth.service            # systemd service unit
 ```
 
 ## Configuration
@@ -114,9 +191,20 @@ model:
   keep_alive: -1  # Persistent loading
 
 output:
-  format: "both"  # numpy, image, or both
-  colormap: "viridis"
+  format: "both"  # numpy, image, both, or depth_png_16
+  colormap: "viridis"  # viridis, plasma, magma, turbo, jet
   normalize: true
+  include_stats: true
+  depth_png_16: false
+
+input:
+  allow_local_paths: false  # Security: disable by default
+  allow_image_url: true
+  max_image_mb: 50
+
+resources:
+  model_dir: /var/lib/hailo-depth/resources/models
+  postprocess_dir: /var/lib/hailo-depth/resources/postprocess
 
 resource_limits:
   memory_max: "3G"
@@ -126,7 +214,8 @@ resource_limits:
 After editing, regenerate JSON config and restart:
 
 ```bash
-sudo python3 /usr/local/bin/render_config.py \
+cd /path/to/system_services/hailo-depth
+sudo python3 render_config.py \
   --input /etc/hailo/hailo-depth.yaml \
   --output /etc/xdg/hailo-depth/hailo-depth.json
 

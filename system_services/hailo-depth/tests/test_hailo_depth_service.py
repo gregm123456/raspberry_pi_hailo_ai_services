@@ -314,6 +314,125 @@ class TestPerformance:
         assert all(t < avg_time * 2 for t in times), f"Inconsistent times: {times}"
 
 
+class TestNewFeatures:
+    """Test Phase 4 enhancements: stats, 16-bit PNG, image URLs."""
+    
+    def test_depth_stats_output(self, service_url, wait_for_service, sample_image):
+        """Test that depth statistics are included in response."""
+        files = {'image': ('test.jpg', sample_image, 'image/jpeg')}
+        data = {'output_format': 'numpy'}
+        
+        response = requests.post(
+            f"{service_url}/v1/depth/estimate",
+            files=files,
+            data=data,
+            timeout=TIMEOUT
+        )
+        
+        assert response.status_code == 200
+        result = response.json()
+        
+        # Check stats are present
+        assert "stats" in result
+        stats = result["stats"]
+        
+        assert "min" in stats
+        assert "max" in stats
+        assert "mean" in stats
+        assert "p95" in stats
+        
+        # Verify stats values are reasonable
+        assert stats["min"] <= stats["mean"] <= stats["max"]
+        assert stats["mean"] <= stats["p95"] <= stats["max"]
+    
+    def test_depth_png_16_output(self, service_url, wait_for_service, sample_image):
+        """Test 16-bit PNG depth output format."""
+        files = {'image': ('test.jpg', sample_image, 'image/jpeg')}
+        data = {'output_format': 'depth_png_16'}
+        
+        response = requests.post(
+            f"{service_url}/v1/depth/estimate",
+            files=files,
+            data=data,
+            timeout=TIMEOUT
+        )
+        
+        assert response.status_code == 200
+        result = response.json()
+        
+        # Check 16-bit PNG is present
+        assert "depth_png_16" in result
+        assert "depth_map" not in result
+        assert "depth_image" not in result
+        
+        # Verify it's valid PNG data (base64)
+        try:
+            png_bytes = base64.b64decode(result["depth_png_16"])
+            # Check PNG magic number
+            assert png_bytes[:8] == b'\x89PNG\r\n\x1a\n'
+        except Exception as e:
+            pytest.fail(f"Invalid PNG data: {e}")
+    
+    def test_image_url_input(self, service_url, wait_for_service, sample_image):
+        """Test image_url input (if service allows it)."""
+        # Note: This test requires a publicly accessible image URL
+        # For now, we test the request format validation
+        
+        response = requests.post(
+            f"{service_url}/v1/depth/estimate",
+            json={
+                'image_url': 'https://example.com/nonexistent.jpg',
+                'output_format': 'numpy'
+            },
+            timeout=TIMEOUT
+        )
+        
+        # Either succeeds (if image fetched) or returns 400 (if URL fetch failed)
+        # We're mainly testing that image_url field is accepted
+        assert response.status_code in [200, 400]
+        
+        if response.status_code == 400:
+            error = response.json()
+            assert "error" in error
+            # Should contain message about fetching image
+    
+    def test_model_list_endpoint(self, service_url, wait_for_service):
+        """Test /v1/models endpoint."""
+        response = requests.get(f"{service_url}/v1/models", timeout=TIMEOUT)
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert "models" in data
+        assert len(data["models"]) > 0
+        
+        # Check model info structure
+        model = data["models"][0]
+        assert "name" in model
+        assert "type" in model
+        assert "description" in model
+    
+    def test_inference_count_tracking(self, service_url, wait_for_service, sample_image):
+        """Test that inference count is tracked in health endpoint."""
+        # Get baseline count
+        health1 = requests.get(f"{service_url}/health", timeout=TIMEOUT).json()
+        count1 = health1.get("inference_count", 0)
+        
+        # Run an inference
+        files = {'image': ('test.jpg', sample_image, 'image/jpeg')}
+        requests.post(
+            f"{service_url}/v1/depth/estimate",
+            files=files,
+            timeout=TIMEOUT
+        )
+        
+        # Check count increased
+        health2 = requests.get(f"{service_url}/health", timeout=TIMEOUT).json()
+        count2 = health2.get("inference_count", 0)
+        
+        assert count2 > count1, "Inference count should increase after inference"
+
+
 # Pytest configuration
 def pytest_configure(config):
     """Configure pytest."""

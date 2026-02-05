@@ -37,9 +37,9 @@ This project establishes standardized patterns for wrapping Hailo-accelerated AI
 - **hailo-pose** — Human pose estimation (YOLOv8 keypoints, COCO format, production-ready)
 - **hailo-whisper** — Speech-to-text transcription (Whisper models, OpenAI Whisper API-compatible, production-ready)
 - **hailo-piper** — Text-to-speech synthesis (Piper TTS, CPU-only; production-ready)
+- **hailo-depth** — Monocular depth estimation (scdepthv3 on Hailo-10H, ~11.5ms inference, production-ready)
 
 ### Draft/Experimental Services
-- **hailo-depth** — Monocular and stereo depth estimation
 - **hailo-face** — Face detection and embedding comparison
 - **hailo-scrfd** — Specialized face detection (SCRFD)
 - **hailo-florence** — Vision understanding and captioning (installer complete; HEF files require Hailo-10H recompilation)
@@ -56,9 +56,9 @@ Each working service follows the same deployment patterns, offers idiomatic APIs
 | hailo-whisper | Python service | System Python + apt/pip deps (no venv) | Optional warmup; models load on first use | ✅ Full (encoder/decoder) |
 | hailo-piper | Python service | System Python + pip piper-tts (no venv) | Optional install-time model download | ❌ CPU-only (no NPU) |
 | hailo-ocr | Python service | System Python + pip deps (no venv) | Optional warmup download | ✅ Full (detection + recognition) |
-| hailo-depth | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (depth estimation) |
-| hailo-face | Python service | System Python + apt/pip deps (no venv) | Models load at runtime | ✅ Full (SCRFD + ArcFace) |
+| hailo-depth | Python service | System Python + apt/pip deps (no venv) | Install-time download (scdepthv3.hef, 11 MB) | ✅ Full (depth estimation) |
 | hailo-pose | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (YOLOv8 keypoints) |
+| hailo-face | Python service | System Python + apt/pip deps (no venv) | Models load at runtime | ✅ Full (SCRFD + ArcFace) |
 | hailo-scrfd | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (face detection) |
 | hailo-florence | Python service | Dedicated venv in /opt/hailo-florence/venv (installer-managed) | Install-time resource download | ⚠️ HEF compatibility issue (Hailo-8 → Hailo-10H) |
 
@@ -148,6 +148,7 @@ See individual service and submodule LICENSE files for details.
 
 ---
 
-**Last Updated:** January 2026  
+**Last Updated:** February 2026  
 **Hailo-10H:** Requires kernel driver from Hailo Technologies  
-**Reference:** [System Setup Guide](reference_documentation/system_setup.md)
+**Reference:** [System Setup Guide](reference_documentation/system_setup.md)  
+**Recent:** hailo-depth integrated with HailoRT (Feb 4, 2026) — full Hailo-10H NPU acceleration for monocular depth estimation
