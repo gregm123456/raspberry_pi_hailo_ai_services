@@ -1,7 +1,7 @@
 # hailo-florence API Specification
 
 **Version:** 1.0.0  
-**Base URL:** `http://localhost:8082`  
+**Base URL:** `http://localhost:11438`  
 **Protocol:** REST over HTTP  
 **Content-Type:** `application/json`
 
@@ -15,7 +15,7 @@ Generate a natural language description of an image.
 
 **Endpoint:** `POST /v1/caption`
 
-**Request Body:**
+**Request Body (JSON):**
 ```json
 {
   "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
@@ -25,12 +25,18 @@ Generate a natural language description of an image.
 }
 ```
 
+**Request Body (Multipart):**
+- `image` (file): JPEG or PNG image file
+- `max_length` (int, optional)
+- `min_length` (int, optional)
+- `temperature` (float, optional)
+
 **Request Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `image` | string | Yes | - | Base64-encoded image with data URI prefix |
-| `max_length` | integer | No | 100 | Maximum caption length (tokens) |
+| `max_length` | integer | No | 100 | Maximum caption length (tokens, capped by `model.max_tokens`) |
 | `min_length` | integer | No | 10 | Minimum caption length (tokens) |
 | `temperature` | float | No | 0.7 | Sampling temperature (0.0-1.0) |
 
@@ -96,14 +102,14 @@ Generate a natural language description of an image.
 
 ```bash
 # Basic caption generation
-curl -X POST http://localhost:8082/v1/caption \
+curl -X POST http://localhost:11438/v1/caption \
   -H "Content-Type: application/json" \
   -d '{
     "image": "data:image/jpeg;base64,'$(base64 -w0 image.jpg)'"
   }'
 
 # With custom parameters
-curl -X POST http://localhost:8082/v1/caption \
+curl -X POST http://localhost:11438/v1/caption \
   -H "Content-Type: application/json" \
   -d '{
     "image": "data:image/jpeg;base64,'$(base64 -w0 image.jpg)'",
@@ -124,7 +130,7 @@ def caption_image(image_path, max_length=100):
         image_b64 = base64.b64encode(f.read()).decode('utf-8')
     
     response = requests.post(
-        "http://localhost:8082/v1/caption",
+        "http://localhost:11438/v1/caption",
         json={
             "image": f"data:image/jpeg;base64,{image_b64}",
             "max_length": max_length
@@ -143,7 +149,58 @@ print(caption)
 
 ---
 
-### 2. Health Check
+### 2. Visual Question Answering (VQA)
+
+Answer a question about an image.
+
+**Endpoint:** `POST /v1/vqa`
+
+**Request Body (JSON):**
+```json
+{
+  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg...",
+  "question": "What is the person holding?",
+  "max_length": 60,
+  "min_length": 5,
+  "temperature": 0.2
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "answer": "A phone",
+  "inference_time_ms": 820,
+  "model": "florence-2",
+  "token_count": 2
+}
+```
+
+**Error Responses:**
+
+```json
+// 501 Not Implemented - VQA embedding missing
+{
+  "error": "vqa_not_configured",
+  "message": "VQA embedding not configured",
+  "status": 501
+}
+```
+
+**Example Usage:**
+
+```bash
+curl -X POST http://localhost:11438/v1/vqa \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image": "data:image/jpeg;base64,'$(base64 -w0 image.jpg)'",
+    "question": "What is the person holding?"
+  }'
+```
+
+---
+
+### 3. Health Check
 
 Check service health and model status.
 
@@ -182,12 +239,12 @@ Check service health and model status.
 **Example Usage:**
 
 ```bash
-curl http://localhost:8082/health
+curl http://localhost:11438/health
 ```
 
 ---
 
-### 3. Service Metrics
+### 4. Service Metrics
 
 Retrieve service performance metrics.
 
@@ -227,7 +284,7 @@ Retrieve service performance metrics.
 **Example Usage:**
 
 ```bash
-curl http://localhost:8082/metrics
+curl http://localhost:11438/metrics
 ```
 
 ---
@@ -253,7 +310,8 @@ No rate limiting is enforced by default. However, due to the inference latency (
 
 ### Encoding Requirements
 - Images must be base64-encoded
-- Data URI prefix required: `data:image/jpeg;base64,` or `data:image/png;base64,`
+- Data URI prefix required for JSON payloads: `data:image/jpeg;base64,` or `data:image/png;base64,`
+- Multipart form uploads accepted with `image` or `file` field
 - No line breaks in base64 string
 
 ### Image Preprocessing
@@ -285,6 +343,7 @@ All errors follow a consistent format:
 | `invalid_parameters` | 422 | Request parameters out of valid range |
 | `inference_failed` | 500 | Model inference encountered an error |
 | `model_not_ready` | 503 | Model still loading or not available |
+| `vqa_not_configured` | 501 | VQA embedding missing |
 | `device_error` | 503 | Hailo device not accessible |
 
 ---
@@ -322,7 +381,7 @@ import requests
 from pathlib import Path
 import json
 
-API_URL = "http://localhost:8082/v1/caption"
+API_URL = "http://localhost:11438/v1/caption"
 
 def batch_caption(image_dir, output_file):
     results = []
@@ -368,7 +427,7 @@ import base64
 import requests
 
 app = Flask(__name__)
-FLORENCE_API = "http://localhost:8082/v1/caption"
+FLORENCE_API = "http://localhost:11438/v1/caption"
 
 @app.route('/describe', methods=['POST'])
 def describe_image():

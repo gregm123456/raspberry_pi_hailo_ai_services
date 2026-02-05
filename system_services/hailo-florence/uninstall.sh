@@ -12,8 +12,10 @@ NC='\033[0m'
 
 SERVICE_NAME="hailo-florence"
 SERVICE_USER="hailo-florence"
-SERVICE_DIR="/opt/hailo/florence"
-CONFIG_DIR="/etc/hailo/florence"
+SERVICE_DIR="/opt/hailo-florence"
+DATA_DIR="/var/lib/hailo-florence"
+CONFIG_DIR="/etc/hailo"
+XDG_DIR="/etc/xdg/hailo-florence"
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -60,10 +62,22 @@ if [ -d "$SERVICE_DIR" ]; then
     rm -rf "$SERVICE_DIR"
 fi
 
-# Remove config directory
-if [ -d "$CONFIG_DIR" ]; then
-    log_info "Removing config directory: $CONFIG_DIR"
-    rm -rf "$CONFIG_DIR"
+# Remove data directory
+if [ -d "$DATA_DIR" ]; then
+    log_info "Removing data directory: $DATA_DIR"
+    rm -rf "$DATA_DIR"
+fi
+
+# Remove config file
+if [ -f "${CONFIG_DIR}/hailo-florence.yaml" ]; then
+    log_info "Removing config: ${CONFIG_DIR}/hailo-florence.yaml"
+    rm -f "${CONFIG_DIR}/hailo-florence.yaml"
+fi
+
+# Remove XDG config
+if [ -d "$XDG_DIR" ]; then
+    log_info "Removing XDG config: $XDG_DIR"
+    rm -rf "$XDG_DIR"
 fi
 
 # Remove user

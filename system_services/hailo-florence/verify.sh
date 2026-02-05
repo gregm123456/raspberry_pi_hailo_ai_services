@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 SERVICE_NAME="hailo-florence"
-API_BASE="http://localhost:8082"
+API_BASE="http://localhost:11438"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Test results tracking
@@ -152,7 +152,34 @@ test_caption_generation() {
     fi
 }
 
-# Test 5: Metrics Endpoint
+# Test 5: VQA Endpoint
+test_vqa_endpoint() {
+    log_test "Testing VQA endpoint..."
+
+    test_image_b64="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/v1/vqa" \
+        -H "Content-Type: application/json" \
+        -d "{\"image\": \"data:image/png;base64,$test_image_b64\", \"question\": \"What is shown?\"}" \
+        2>/dev/null || echo "000")
+
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | head -n-1)
+
+    if [ "$http_code" = "200" ]; then
+        log_pass "VQA API returned 200 OK"
+        return 0
+    elif [ "$http_code" = "501" ]; then
+        log_warn "VQA not configured (missing VQA embedding)."
+        return 0
+    else
+        log_fail "VQA API returned $http_code (expected 200 or 501)"
+        echo "Body: $body"
+        return 1
+    fi
+}
+
+# Test 6: Metrics Endpoint
 test_metrics_endpoint() {
     log_test "Testing metrics endpoint..."
     
@@ -176,7 +203,7 @@ test_metrics_endpoint() {
     fi
 }
 
-# Test 6: Service Logs
+# Test 7: Service Logs
 test_service_logs() {
     log_test "Checking service logs for errors..."
     
@@ -198,7 +225,7 @@ test_service_logs() {
     fi
 }
 
-# Test 7: Memory Usage
+# Test 8: Memory Usage
 test_memory_usage() {
     log_test "Checking memory usage..."
     
@@ -214,11 +241,11 @@ test_memory_usage() {
         memory_mb=$((memory_usage / 1024 / 1024))
         log_info "Memory usage: ${memory_mb} MB"
         
-        if [ "$memory_mb" -lt 4096 ]; then
-            log_pass "Memory usage within limits (< 4GB)"
+        if [ "$memory_mb" -lt 3072 ]; then
+            log_pass "Memory usage within limits (< 3GB)"
             return 0
         else
-            log_fail "Memory usage exceeds 4GB limit"
+            log_fail "Memory usage exceeds 3GB limit"
             return 1
         fi
     else
@@ -246,6 +273,9 @@ run_tests() {
     test_caption_generation || true
     echo ""
     
+    test_vqa_endpoint || true
+    echo ""
+
     test_metrics_endpoint || true
     echo ""
     

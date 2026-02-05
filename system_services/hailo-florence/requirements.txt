@@ -1,0 +1,13 @@
+fastapi==0.115.6
+onnxruntime==1.23.2
+numpy==2.0.2
+Pillow==10.4.0
+psutil==6.1.0
+pydantic==2.10.2
+PyYAML==6.0.2
+python-multipart==0.0.9
+huggingface_hub==0.27.1
+torch==2.6.0
+tokenizers==0.20.3
+transformers==4.46.2
+uvicorn==0.32.1

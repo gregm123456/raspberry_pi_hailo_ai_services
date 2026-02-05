@@ -1,40 +1,47 @@
 [Unit]
-Description=Hailo Florence-2 Image Captioning Service
+Description=Hailo Florence-2 Captioning + VQA Service
 Documentation=https://github.com/hailo-ai/hailo-rpi5-examples
-After=network.target
-Wants=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
+
 User=hailo-florence
 Group=hailo-florence
-WorkingDirectory=/opt/hailo/florence
 
-# Environment
-Environment="PYTHONUNBUFFERED=1"
-Environment="HAILO_DEVICE=/dev/hailo0"
-EnvironmentFile=-/etc/hailo/florence/env
+WorkingDirectory=/var/lib/hailo-florence
+StateDirectory=hailo-florence
+
+# XDG wiring: force config + data locations
+Environment=XDG_CONFIG_HOME=/etc/xdg
+Environment=XDG_CONFIG_DIRS=/etc/xdg
+Environment=XDG_DATA_HOME=/var/lib
+Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
+
+Environment=HAILO_PRINT_TO_SYSLOG=1
+Environment=PYTHONUNBUFFERED=1
 
 # Service execution
-ExecStart=/usr/bin/python3 /opt/hailo/florence/server.py --config /etc/hailo/florence/config.yaml
+ExecStart=/opt/hailo-florence/venv/bin/python3 /opt/hailo-florence/hailo_florence_service.py
 
 # Resource limits
-MemoryLimit=4G
-CPUQuota=200%
+MemoryMax=3G
+CPUQuota=70%
 TasksMax=50
 
 # Restart policy
-Restart=on-failure
-RestartSec=10s
-StartLimitBurst=3
-StartLimitIntervalSec=60s
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
 
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/hailo/florence/logs
+ReadWritePaths=/var/lib/hailo-florence
 SupplementaryGroups=video
 
 # Logging

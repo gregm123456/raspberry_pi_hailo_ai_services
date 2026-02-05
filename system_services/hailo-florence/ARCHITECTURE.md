@@ -1,17 +1,17 @@
 # hailo-florence Architecture
 
-**Design Document for Florence-2 Image Captioning System Service**
+**Design Document for Florence-2 Image Captioning + VQA System Service**
 
 ---
 
 ## Overview
 
-The `hailo-florence` service provides REST API access to Microsoft's Florence-2 vision-language model for automatic image captioning. It follows the established architecture pattern for Hailo system services: persistent model loading, systemd lifecycle management, and RESTful API exposure.
+The `hailo-florence` service provides REST API access to Microsoft's Florence-2 vision-language model for automatic image captioning and visual question answering (VQA). It follows the established architecture pattern for Hailo system services: persistent model loading, systemd lifecycle management, and RESTful API exposure.
 
 **Key Design Principles:**
 1. **Model Persistence:** Load Florence-2 at startup, keep resident in memory
 2. **Resource Budget:** Targeted 2-3 GB VRAM, ~3.5 GB total memory
-3. **API Simplicity:** Single-purpose endpoint (`/v1/caption`) for image description
+3. **API Simplicity:** Two focused endpoints (`/v1/caption`, `/v1/vqa`) for description and Q&A
 4. **Pragmatic Approach:** Build atop existing implementation in hailo-rpi5-examples
 5. **systemd Integration:** Managed lifecycle, journald logging, health monitoring
 
@@ -28,6 +28,7 @@ The `hailo-florence` service provides REST API access to Microsoft's Florence-2 
 └────────────────────────┬────────────────────────────────────┘
                          │ HTTP REST API
                          │ POST /v1/caption
+                         │ POST /v1/vqa
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                  hailo-florence Service                      │
@@ -80,12 +81,13 @@ The `hailo-florence` service provides REST API access to Microsoft's Florence-2 
 
 **Implementation:**
 - **Framework:** FastAPI (async-capable, auto-validation)
-- **Port:** 8082 (default, configurable)
+- **Port:** 11438 (default, configurable)
 - **Workers:** Single-worker (no concurrent inference)
 - **Endpoints:**
-  - `POST /v1/caption` - Generate caption
-  - `GET /health` - Service health check
-  - `GET /metrics` - Performance metrics
+   - `POST /v1/caption` - Generate caption
+   - `POST /v1/vqa` - Answer a question about an image
+   - `GET /health` - Service health check
+   - `GET /metrics` - Performance metrics
 
 **Request Flow:**
 1. Receive POST request with base64-encoded image
@@ -101,6 +103,7 @@ The `hailo-florence` service provides REST API access to Microsoft's Florence-2 
 - 422: Invalid parameters (max_length, etc.)
 - 500: Inference failure
 - 503: Model not ready or Hailo device unavailable
+- 501: VQA embedding missing (VQA not configured)
 
 ### 2. Florence-2 Inference Pipeline
 
@@ -137,10 +140,13 @@ Florence-2 is a unified vision-language model with encoder-decoder architecture:
    - Latency: <10ms
 
 **Model Files:**
-- `florence2_davit.onnx` - Vision encoder (ONNX)
-- `florence2_encoder.hef` - Text encoder (Hailo)
-- `florence2_decoder.hef` - Decoder transformer (Hailo)
+- `vision_encoder.onnx` - Vision encoder (ONNX)
+- `florence2_transformer_encoder.hef` - Text encoder (Hailo)
+- `florence2_transformer_decoder.hef` - Decoder transformer (Hailo)
 - `tokenizer.json` - HuggingFace tokenizer config
+- `caption_embedding.npy` - Task embedding for captioning
+- `vqa_embedding.npy` - Task embedding for VQA (optional, required for /v1/vqa)
+- `word_embedding.npy` - Token embedding lookup for decoder
 
 **Loading Strategy:**
 1. Load all models at service startup
@@ -150,7 +156,7 @@ Florence-2 is a unified vision-language model with encoder-decoder architecture:
 
 ### 3. systemd Service Management
 
-**Service Type:** `Type=notify` (requires sd_notify support)
+**Service Type:** `Type=simple`
 
 **Lifecycle:**
 1. **Pre-Start:** Verify Hailo device availability
@@ -167,8 +173,8 @@ Wants=network.target
 ```
 
 **Resource Limits:**
-- `MemoryLimit=4G` - Hard memory cap
-- `CPUQuota=200%` - Allow 2 CPU cores worth
+- `MemoryMax=3G` - Hard memory cap
+- `CPUQuota=70%` - Reserve headroom for OS and other services
 - `TasksMax=50` - Limit subprocess count
 
 **Restart Policy:**
@@ -236,16 +242,16 @@ Wants=network.target
 
 ## API Design Decisions
 
-### Why Single Endpoint?
+### Why Two Endpoints?
 
-Unlike Ollama (chat, generate, embeddings) or vision models (multiple tasks), Florence-2 has **one primary function: image captioning**.
+Florence-2 supports multiple prompt tokens. The service exposes two focused tasks:
 
-**Decision:** Single-purpose API (`/v1/caption`) for clarity.
+- **Captioning:** `/v1/caption` with the `<CAPTION>` task token
+- **VQA:** `/v1/vqa` with the `<VQA>` task token
 
-**Alternative Considered:** Multi-task API supporting OCR, object detection, etc.
-- Florence-2 technically supports multiple tasks via task tokens
-- **Rejected:** Complicates API, increases resource usage
-- **Future:** Could add `/v1/ocr`, `/v1/detect` if needed
+**Decision:** Keep the API small while covering the two primary use cases.
+
+**Future:** Additional tasks (OCR, detection, grounded captioning) can be added if resources allow.
 
 ### Why No Streaming?
 
@@ -295,7 +301,7 @@ Unlike Ollama (chat, generate, embeddings) or vision models (multiple tasks), Fl
 **Scenario:** System runs out of RAM (concurrent services, memory leak)
 
 **Strategy:**
-1. `MemoryLimit=4G` hard cap prevents runaway consumption
+1. `MemoryMax=3G` hard cap prevents runaway consumption
 2. If limit hit, systemd kills service (SIGKILL)
 3. Restart policy attempts recovery
 4. Log OOM event to journald for diagnosis
@@ -369,7 +375,7 @@ sudo journalctl -u hailo-florence -f
 ### Current Deployment (localhost-only)
 
 **Assumptions:**
-- Service binds to `0.0.0.0:8082` but firewall blocks external access
+- Service binds to `0.0.0.0:11438` but firewall blocks external access
 - Trusted local users only
 - No authentication required
 
@@ -476,8 +482,10 @@ def test_caption_generation(api_client):
 
 2. **User & Directory Setup**
    - Create `hailo-florence` system user
-   - Create `/opt/hailo/florence/` (service directory)
-   - Create `/etc/hailo/florence/` (configuration)
+   - Create `/opt/hailo-florence/` (service directory)
+   - Create `/var/lib/hailo-florence/` (data/model storage)
+   - Create `/etc/hailo/hailo-florence.yaml` (configuration)
+   - Render `/etc/xdg/hailo-florence/hailo-florence.json`
    - Set ownership and permissions
 
 3. **Python Environment**
@@ -489,11 +497,11 @@ def test_caption_generation(api_client):
    - Download Florence-2 HEF files (encoder, decoder)
    - Download ONNX vision encoder
    - Download tokenizer config
-   - Place in `/opt/hailo/florence/models/`
+   - Place in `/var/lib/hailo-florence/models/`
 
 5. **Configuration**
    - Render config.yaml with `render_config.py`
-   - Copy to `/etc/hailo/florence/config.yaml`
+   - Copy to `/etc/hailo/hailo-florence.yaml`
 
 6. **systemd Service**
    - Copy `hailo-florence.service` to `/etc/systemd/system/`

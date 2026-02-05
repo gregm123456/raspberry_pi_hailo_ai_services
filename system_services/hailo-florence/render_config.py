@@ -1,182 +1,86 @@
 #!/usr/bin/env python3
-"""
-Configuration renderer for hailo-florence service.
+"""Render hailo-florence YAML config to JSON format."""
 
-This script processes the config.yaml template and renders it with
-environment-specific values or user overrides.
-"""
-
-import os
+import argparse
+import json
 import sys
-import yaml
 from pathlib import Path
+from typing import Any, Dict
+
+import yaml
 
 
-def render_config(template_path, output_path, overrides=None):
-    """
-    Render configuration template with optional overrides.
-    
-    Args:
-        template_path: Path to config.yaml template
-        output_path: Path to write rendered config
-        overrides: Optional dict of values to override
-    """
-    # Load template
-    with open(template_path, 'r') as f:
-        config = yaml.safe_load(f)
-    
-    # Apply overrides if provided
-    if overrides:
-        config = deep_merge(config, overrides)
-    
-    # Environment variable substitutions
-    config = substitute_env_vars(config)
-    
-    # Write rendered config
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_path, 'w') as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-    
-    print(f"Configuration rendered: {output_path}")
-    return config
-
-
-def deep_merge(base, override):
-    """Recursively merge override dict into base dict."""
-    result = base.copy()
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
-
-
-def substitute_env_vars(config):
-    """Substitute ${ENV_VAR} placeholders with environment variables."""
-    if isinstance(config, dict):
-        return {k: substitute_env_vars(v) for k, v in config.items()}
-    elif isinstance(config, list):
-        return [substitute_env_vars(item) for item in config]
-    elif isinstance(config, str):
-        # Simple ${VAR} substitution
-        if config.startswith('${') and config.endswith('}'):
-            var_name = config[2:-1]
-            return os.getenv(var_name, config)
-        return config
-    else:
-        return config
-
-
-def validate_config(config):
-    """Validate configuration values."""
-    errors = []
-    
-    # Required sections
-    required_sections = ['service', 'model', 'resources']
+def _validate_config(config: Dict[str, Any]) -> None:
+    required_sections = ["server", "model", "resources"]
     for section in required_sections:
         if section not in config:
-            errors.append(f"Missing required section: {section}")
-    
-    # Service validation
-    if 'service' in config:
-        port = config['service'].get('port')
-        if port and (port < 1024 or port > 65535):
-            errors.append(f"Invalid port: {port} (must be 1024-65535)")
-    
-    # Model validation
-    if 'model' in config:
-        max_length = config['model'].get('max_length', 100)
-        min_length = config['model'].get('min_length', 10)
-        if max_length < min_length:
-            errors.append(f"max_length ({max_length}) must be >= min_length ({min_length})")
-    
-    # Resource validation
-    if 'resources' in config:
-        timeout = config['resources'].get('request_timeout_seconds', 30)
-        if timeout <= 0:
-            errors.append(f"Invalid request_timeout_seconds: {timeout}")
-    
-    if errors:
-        print("Configuration validation errors:", file=sys.stderr)
-        for error in errors:
-            print(f"  - {error}", file=sys.stderr)
-        sys.exit(1)
-    
-    print("Configuration validation: OK")
+            raise ValueError(f"Missing required section: {section}")
+
+    server = config.get("server", {})
+    if not isinstance(server, dict) or "host" not in server or "port" not in server:
+        raise ValueError("'server' must include 'host' and 'port'")
+
+    port = int(server.get("port", 0))
+    if port < 1024 or port > 65535:
+        raise ValueError(f"Invalid port: {port} (must be 1024-65535)")
+
+    model = config.get("model", {})
+    if not isinstance(model, dict) or "model_dir" not in model:
+        raise ValueError("'model' must include 'model_dir'")
+
+    max_length = int(model.get("max_length", 100))
+    min_length = int(model.get("min_length", 10))
+    if max_length < min_length:
+        raise ValueError("model.max_length must be >= model.min_length")
+
+    resources = config.get("resources", {})
+    if not isinstance(resources, dict):
+        raise ValueError("'resources' must be a dictionary")
+
+    timeout = int(resources.get("request_timeout_seconds", 30))
+    if timeout <= 0:
+        raise ValueError("resources.request_timeout_seconds must be > 0")
 
 
-def main():
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Render hailo-florence configuration")
+def render_config(input_path: Path, output_path: Path) -> None:
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    with open(input_path, "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+
+    if not isinstance(config, dict):
+        raise ValueError("Config must be a YAML dictionary")
+
+    _validate_config(config)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(config, handle, indent=2)
+
+    print(f"Config rendered: {output_path}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Render hailo-florence config")
     parser.add_argument(
-        '--template',
-        default='config.yaml',
-        help='Path to config template (default: config.yaml)'
+        "--input",
+        default="/etc/hailo/hailo-florence.yaml",
+        help="Path to input YAML config",
     )
     parser.add_argument(
-        '--output',
-        default='/etc/hailo/florence/config.yaml',
-        help='Path to write rendered config (default: /etc/hailo/florence/config.yaml)'
+        "--output",
+        default="/etc/xdg/hailo-florence/hailo-florence.json",
+        help="Path to output JSON config",
     )
-    parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help='Only validate configuration, do not write'
-    )
-    parser.add_argument(
-        '--set',
-        action='append',
-        metavar='KEY=VALUE',
-        help='Override configuration value (e.g., --set service.port=8083)'
-    )
-    
+
     args = parser.parse_args()
-    
-    # Parse overrides
-    overrides = {}
-    if args.set:
-        for override in args.set:
-            if '=' not in override:
-                print(f"Invalid override format: {override}", file=sys.stderr)
-                print("Expected: KEY=VALUE (e.g., service.port=8083)", file=sys.stderr)
-                sys.exit(1)
-            
-            key_path, value = override.split('=', 1)
-            keys = key_path.split('.')
-            
-            # Build nested dict
-            current = overrides
-            for key in keys[:-1]:
-                if key not in current:
-                    current[key] = {}
-                current = current[key]
-            
-            # Try to parse value as int/float/bool
-            try:
-                if value.lower() in ('true', 'false'):
-                    value = value.lower() == 'true'
-                elif value.isdigit():
-                    value = int(value)
-                elif '.' in value and all(part.isdigit() for part in value.split('.', 1)):
-                    value = float(value)
-            except:
-                pass  # Keep as string
-            
-            current[keys[-1]] = value
-    
-    # Render configuration
-    config = render_config(args.template, args.output, overrides)
-    
-    # Validate
-    validate_config(config)
-    
-    if not args.validate_only:
-        print(f"Configuration written to: {args.output}")
+    try:
+        render_config(Path(args.input), Path(args.output))
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

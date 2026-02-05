@@ -62,7 +62,7 @@ pytest tests/ -v --cov=server --cov-report=html
 
 Set custom API endpoint:
 ```bash
-export FLORENCE_API_BASE=http://192.168.1.100:8082
+export FLORENCE_API_BASE=http://192.168.1.100:11438
 pytest tests/ -v
 ```
 
@@ -94,7 +94,7 @@ Wait for model loading to complete (60-120 seconds on first start).
 ### Connection Refused
 Check service is running and accessible:
 ```bash
-curl http://localhost:8082/health
+curl http://localhost:11438/health
 ```
 
 ### Test Failures

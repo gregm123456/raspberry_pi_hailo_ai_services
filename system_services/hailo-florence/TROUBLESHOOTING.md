@@ -47,16 +47,16 @@ sudo reboot
 
 **Error message:**
 ```
-FileNotFoundError: florence2_encoder.hef not found
+FileNotFoundError: florence2_transformer_encoder.hef not found
 ```
 
 **Solution:**
 ```bash
 # Check model directory
-ls -la /opt/hailo/florence/models/
+ls -la /var/lib/hailo-florence/models/
 
 # Re-run model download (if applicable)
-# Or manually download models to /opt/hailo/florence/models/
+# Or manually download models to /var/lib/hailo-florence/models/
 ```
 
 #### 3. Python Dependencies Missing
@@ -69,7 +69,7 @@ ModuleNotFoundError: No module named 'fastapi'
 **Solution:**
 ```bash
 # Reinstall dependencies
-sudo pip3 install --break-system-packages fastapi uvicorn pillow transformers onnxruntime pyyaml aiofiles
+sudo /opt/hailo-florence/venv/bin/pip install -r /opt/hailo-florence/requirements.txt
 ```
 
 #### 4. Permission Denied
@@ -81,11 +81,12 @@ PermissionError: [Errno 13] Permission denied: '/dev/hailo0'
 
 **Solution:**
 ```bash
-# Verify user in video group
-groups hailo-florence | grep video
+# Verify user is in the Hailo device group
+stat -c '%G' /dev/hailo0
+groups hailo-florence | grep "$(stat -c '%G' /dev/hailo0)"
 
-# If missing, add to group
-sudo usermod -a -G video hailo-florence
+# If missing, add to device group
+sudo usermod -a -G "$(stat -c '%G' /dev/hailo0)" hailo-florence
 
 # Restart service
 sudo systemctl restart hailo-florence
@@ -154,7 +155,7 @@ sudo systemctl restart hailo-florence
 
 ### Symptom
 ```bash
-$ curl http://localhost:8082/health
+$ curl http://localhost:11438/health
 {"status":"unhealthy","model_loaded":false}
 ```
 
@@ -175,6 +176,24 @@ Loading Florence-2 models...
 ```
 
 **Solution:** Wait 1-2 minutes for model loading to complete. First start after installation can take 2-3 minutes.
+
+---
+
+## VQA Returns 501 Not Implemented
+
+### Symptom
+```bash
+$ curl -X POST http://localhost:11438/v1/vqa -d '{"image":"...","question":"..."}'
+{"error":"vqa_not_configured","message":"VQA embedding not configured","status":501}
+```
+
+### Cause
+The VQA task embedding (`vqa_embedding.npy`) is missing from the model directory.
+
+### Solution
+1. Download the VQA embedding to `/var/lib/hailo-florence/models/`.
+2. Update `/etc/hailo/hailo-florence.yaml` if the filename differs.
+3. Restart the service: `sudo systemctl restart hailo-florence`
 
 #### 2. ONNX Runtime Error
 
@@ -260,7 +279,7 @@ echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governo
 
 ### Symptom
 ```bash
-$ curl -X POST http://localhost:8082/v1/caption -d '{"image": "..."}'
+$ curl -X POST http://localhost:11438/v1/caption -d '{"image": "..."}'
 {"error":"invalid_image_format","message":"Image must be base64-encoded JPEG or PNG"}
 ```
 
@@ -305,12 +324,12 @@ convert image.bmp image.jpg
 
 ---
 
-## High Memory Usage (> 4 GB)
+## High Memory Usage (> 3 GB)
 
 ### Symptom
 ```bash
 $ systemctl show hailo-florence --property=MemoryCurrent
-MemoryCurrent=4500000000  # > 4GB
+MemoryCurrent=3400000000  # > 3GB
 ```
 
 ### Solutions
@@ -333,7 +352,7 @@ watch -n 5 'systemctl show hailo-florence --property=MemoryCurrent'
 
 **If processing many large images:**
 
-Edit `/etc/hailo/florence/config.yaml`:
+Edit `/etc/hailo/hailo-florence.yaml`:
 ```yaml
 model:
   max_image_bytes: 5242880  # Reduce from 10MB to 5MB
@@ -351,7 +370,7 @@ sudo systemctl restart hailo-florence
 ### Symptom
 ```bash
 # From another machine:
-$ curl http://192.168.1.100:8082/health
+$ curl http://192.168.1.100:11438/health
 curl: (7) Failed to connect
 ```
 
@@ -361,7 +380,7 @@ curl: (7) Failed to connect
 
 **Verify config:**
 ```bash
-grep "host:" /etc/hailo/florence/config.yaml
+grep "host:" /etc/hailo/hailo-florence.yaml
 
 # Should be:
 #   host: "0.0.0.0"  # NOT "127.0.0.1"
@@ -369,7 +388,7 @@ grep "host:" /etc/hailo/florence/config.yaml
 
 **If wrong, edit config and restart:**
 ```bash
-sudo nano /etc/hailo/florence/config.yaml
+sudo nano /etc/hailo/hailo-florence.yaml
 sudo systemctl restart hailo-florence
 ```
 
@@ -377,12 +396,12 @@ sudo systemctl restart hailo-florence
 
 **Check firewall:**
 ```bash
-sudo iptables -L -n | grep 8082
+sudo iptables -L -n | grep 11438
 ```
 
 **Allow port:**
 ```bash
-sudo iptables -A INPUT -p tcp --dport 8082 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 11438 -j ACCEPT
 ```
 
 **Make persistent:**
@@ -416,7 +435,7 @@ WARNING: Memory usage approaching limit: 3.8GB
 
 #### 1. Tune Warning Thresholds
 
-Edit `/etc/hailo/florence/config.yaml`:
+Edit `/etc/hailo/hailo-florence.yaml`:
 ```yaml
 logging:
   level: "ERROR"  # Reduce verbosity (was INFO)
@@ -426,7 +445,7 @@ logging:
 
 **These warnings are informational:**
 - Inference time 1-2s is normal for Florence-2
-- Memory usage 3-4GB is expected
+- Memory usage 2-3GB is expected
 
 **Disable specific warnings in code** (if needed)
 
@@ -455,7 +474,7 @@ wget https://example.com/test_image.jpg
 **Re-download models:**
 ```bash
 # Remove existing models
-sudo rm -rf /opt/hailo/florence/models/*
+sudo rm -rf /var/lib/hailo-florence/models/*
 
 # Re-run installation (will re-download)
 sudo ./install.sh
@@ -465,12 +484,14 @@ sudo ./install.sh
 
 **Verify model files:**
 ```bash
-ls -lh /opt/hailo/florence/models/
+ls -lh /var/lib/hailo-florence/models/
 # Should see:
-#   florence2_davit.onnx
-#   florence2_encoder.hef
-#   florence2_decoder.hef
+#   vision_encoder.onnx
+#   florence2_transformer_encoder.hef
+#   florence2_transformer_decoder.hef
 #   tokenizer.json
+#   caption_embedding.npy
+#   word_embedding.npy
 ```
 
 #### 3. Image Preprocessing Issue
@@ -558,7 +579,7 @@ $(systemctl status hailo-florence --no-pager)
 $(sudo journalctl -u hailo-florence -n 100 --no-pager)
 
 === Configuration ===
-$(cat /etc/hailo/florence/config.yaml)
+$(cat /etc/hailo/hailo-florence.yaml)
 
 === Hailo Device ===
 $(hailortcli fw-control identify)

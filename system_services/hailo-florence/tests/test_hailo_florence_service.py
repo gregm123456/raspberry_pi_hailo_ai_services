@@ -17,7 +17,7 @@ from io import BytesIO
 
 
 # Configuration
-API_BASE = os.getenv('FLORENCE_API_BASE', 'http://localhost:8082')
+API_BASE = os.getenv('FLORENCE_API_BASE', 'http://localhost:11438')
 SERVICE_NAME = 'hailo-florence'
 
 
@@ -138,6 +138,34 @@ class TestCaptionEndpoint:
         )
         
         assert response.status_code == 422  # Validation error
+
+
+class TestVqaEndpoint:
+    """Tests for /v1/vqa endpoint."""
+
+    def test_vqa_basic_request(self, api_base, test_image_b64, service_ready):
+        """Test basic VQA request."""
+        response = requests.post(
+            f"{api_base}/v1/vqa",
+            json={"image": test_image_b64, "question": "What is shown?"}
+        )
+
+        assert response.status_code in (200, 501)
+        if response.status_code == 200:
+            data = response.json()
+            assert "answer" in data
+            assert "inference_time_ms" in data
+            assert "model" in data
+            assert "token_count" in data
+
+    def test_vqa_missing_question(self, api_base, test_image_b64, service_ready):
+        """Test error when question is missing."""
+        response = requests.post(
+            f"{api_base}/v1/vqa",
+            json={"image": test_image_b64}
+        )
+
+        assert response.status_code == 422
     
     def test_caption_invalid_image_format(self, api_base, service_ready):
         """Test error with invalid image format."""

@@ -42,7 +42,7 @@ This project establishes standardized patterns for wrapping Hailo-accelerated AI
 - **hailo-depth** — Monocular and stereo depth estimation
 - **hailo-face** — Face detection and embedding comparison
 - **hailo-scrfd** — Specialized face detection (SCRFD)
-- **hailo-florence** — Vision understanding and captioning
+- **hailo-florence** — Vision understanding and captioning (installer complete; HEF files require Hailo-10H recompilation)
 
 Each working service follows the same deployment patterns, offers idiomatic APIs for its domain, and integrates with systemd for reliable operation. Draft/experimental services have draft installers and require further testing before production use.
 
@@ -60,7 +60,7 @@ Each working service follows the same deployment patterns, offers idiomatic APIs
 | hailo-face | Python service | System Python + apt/pip deps (no venv) | Models load at runtime | ✅ Full (SCRFD + ArcFace) |
 | hailo-pose | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (YOLOv8 keypoints) |
 | hailo-scrfd | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (face detection) |
-| hailo-florence | Python service | System Python + apt/pip deps (no venv) | Model download on first service start | ⚠️ Partial (text encoder/decoder on NPU, vision on CPU) |
+| hailo-florence | Python service | Dedicated venv in /opt/hailo-florence/venv (installer-managed) | Install-time resource download | ⚠️ HEF compatibility issue (Hailo-8 → Hailo-10H) |
 
 ## Getting Started
 
