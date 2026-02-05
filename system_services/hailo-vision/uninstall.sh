@@ -6,6 +6,8 @@ SERVICE_USER="hailo-vision"
 SERVICE_GROUP="hailo-vision"
 UNIT_DEST="/etc/systemd/system/hailo-vision.service"
 INSTALL_TARGET="/usr/local/bin/hailo-vision-server"
+ETC_HAILO_CONFIG="/etc/hailo/hailo-vision.yaml"
+ETC_XDG_DIR="/etc/xdg/hailo-vision"
 
 REMOVE_USER=false
 PURGE_DATA=false
@@ -16,7 +18,7 @@ Usage: sudo ./uninstall.sh [OPTIONS]
 
 Options:
   --remove-user      Remove the hailo-vision system user and group
-  --purge-data       Remove all service data (/var/lib/hailo-vision)
+  --purge-data       Remove all service data and config (/var/lib/hailo-vision, /etc/hailo/hailo-vision.yaml, /etc/xdg/hailo-vision)
   -h, --help         Show this help
 EOF
 }
@@ -112,9 +114,19 @@ remove_user_group() {
 
 purge_data() {
     if [[ "${PURGE_DATA}" == true ]]; then
-        log "Removing service data and state"
+        log "Removing service data, state, and config"
         rm -rf /var/lib/hailo-vision
         log "Removed: /var/lib/hailo-vision"
+        
+        if [[ -f "${ETC_HAILO_CONFIG}" ]]; then
+            rm -f "${ETC_HAILO_CONFIG}"
+            log "Removed: ${ETC_HAILO_CONFIG}"
+        fi
+        
+        if [[ -d "${ETC_XDG_DIR}" ]]; then
+            rm -rf "${ETC_XDG_DIR}"
+            log "Removed: ${ETC_XDG_DIR}"
+        fi
     else
         log "Skipping data purge (use --purge-data to remove)"
     fi
