@@ -33,6 +33,12 @@ Before starting:
 3. **Hardware:** Raspberry Pi 5 with Hailo-10H AI HAT+ 2, Hailo driver installed (`hailortcli fw-control identify` works).
 4. **Backup:** Commit or stash any uncommitted changes in `main`.
 5. **Testing Environment:** Ability to run services on actual hardware for validation.
+6. **Clean Slate:** Uninstall existing hailo-clip and hailo-vision services to avoid conflicts during integration. Also stop any other running hailo-* services to prevent device conflicts:
+   ```bash
+   sudo ./system_services/hailo-clip/uninstall.sh
+   sudo ./system_services/hailo-vision/uninstall.sh
+   sudo systemctl stop hailo-*  # Stop all other hailo services
+   ```
 
 ## Step-by-Step Implementation
 
