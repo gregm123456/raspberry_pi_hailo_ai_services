@@ -282,6 +282,7 @@ python3 test_concurrent_services.py
 - **Throughput**: Limited by single device, not by manager (queueing is fast)
 - **Memory**: Reduced compared to multiple services each loading models
 - **Startup**: Services start instantly; models load on first inference request
+- **Concurrent Requests (Without Manager)**: Services like hailo-clip (config allows 2 worker threads, but not implemented in code) and hailo-vision queue requests under load, with latencies increasing 10-100x (e.g., 200ms → 20s for CLIP, 4s → 20s for Vision) but handle gracefully without crashes
 
 ## Troubleshooting
 

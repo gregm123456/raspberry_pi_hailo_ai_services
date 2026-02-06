@@ -267,6 +267,6 @@ No built-in rate limiting. Configure via reverse proxy if needed.
 
 ## Concurrency
 
-- Default worker threads: 2 (configurable in `/etc/hailo/hailo-clip.yaml`)
+- Default worker threads: 2 (configurable in `/etc/hailo/hailo-clip.yaml`, but not currently implemented in service code)
 - Thread-safe model inference with RLock
 - Max queue size: 10 concurrent requests (configurable)
