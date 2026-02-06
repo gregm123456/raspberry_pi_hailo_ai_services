@@ -34,12 +34,12 @@ def call_vision(image_b64):
                 "role": "user",
                 "content": [
                     {
-                        "type": "image",
-                        "image": image_b64
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_b64}"}
                     },
                     {
                         "type": "text",
-                        "text": "Describe this image."
+                        "text": "Describe this image in one sentence."
                     }
                 ]
             }
@@ -73,12 +73,23 @@ for iteration in range(1, 4):
 
     # Prepare base64
     dog_b64 = get_base64(DOG_IMG)
+    card_b64 = get_base64(CARD_IMG)
 
     start = time.time()
 
-    # hailo-vision
-    result = call_vision(dog_b64)
-    end = time.time()
-    print(f"Time for hailo-vision: {end - start:.3f}s")
-    print(f"Response: {result['choices'][0]['message']['content']}")
+    # 1. hailo-clip
+    call_clip(dog_b64)
+    end1 = time.time()
+    print(f"Time for hailo-clip: {end1 - start:.3f}s")
+
+    # 2. hailo-vision
+    call_vision(dog_b64)
+    end2 = time.time()
+    print(f"Time for hailo-vision: {end2 - end1:.3f}s")
+
+    # 3. hailo-whisper
+    call_whisper(AUDIO_FILE)
+    end3 = time.time()
+    print(f"Time for hailo-whisper: {end3 - end2:.3f}s")
+
     print()
