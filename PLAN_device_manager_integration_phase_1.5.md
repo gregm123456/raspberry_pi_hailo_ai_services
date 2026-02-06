@@ -44,25 +44,23 @@ Before starting:
 - Keep existing config, ports, and OpenAI Whisper API unchanged.
 
 **Steps:**
-1. Examine current `hailo_whisper_server.py` (main version) and compare with device-manager branch version.
-
-2. In `hailo_whisper_server.py`, update imports:
+1. In `hailo_whisper_server.py`, update imports:
    ```python
    from device_client import HailoDeviceClient
    ```
 
-3. Modify `WhisperModelManager.__init__` and `load()`:
+2. Modify `WhisperModelManager.__init__` and `load()`:
    - Remove direct `VDevice` creation.
    - Add async context for device client.
 
-4. Update `transcribe()`:
+3. Update `transcribe()`:
    - Replace `Speech2Text.generate_all_segments()` calls with `await client.infer(hef_path, audio_data, model_type="whisper")`.
    - If `Speech2Text` wrapper incompatible, convert to lower-level `InferModel` pattern.
 
-5. Update `unload()`:
+4. Update `unload()`:
    - Replace `self._vdevice.release()` with `await client.unload_model(hef_path)`.
 
-6. Ensure backward compatibility: if device manager unavailable, fall back to mock mode.
+5. Ensure backward compatibility: if device manager unavailable, fall back to mock mode.
 
 **Specific Code Changes:**
 - In `WhisperModelManager.load()`: Replace VDevice setup with async client initialization.
@@ -86,34 +84,22 @@ Before starting:
 2. Convert `threading.Lock` to `asyncio.Lock` for async compatibility.
 
 **Steps:**
-1. Compare main and device-manager versions of `hailo_florence_service.py`.
+1. Add import: `from device_client import HailoDeviceClient`
 
-2. Add import: `from device_client import HailoDeviceClient`
-
-3. Modify `FlorencePipeline.load()`:
+2. Modify `FlorencePipeline.load()`:
    - Remove `VDevice` creation.
    - Use async client for encoder and decoder model loading (multi-model support required).
 
-4. Update `generate_caption()` and `vqa()`:
+3. Update `generate_caption()` and `vqa()`:
    - Replace encoder inference with `await client.infer(encoder_hef_path, input_data, model_type="florence_encoder")`.
    - Replace decoder autoregressive loop with `await client.infer(decoder_hef_path, input_data, model_type="florence_decoder")`.
 
-5. Update `cleanup()`:
+4. Update `cleanup()`:
    - Replace manual VDevice release with `await client.unload_model()` for both models.
 
 **Validation:**
 - Service starts and loads models.
 - Caption and VQA APIs work.
-
-**Completed (Feb 5, 2026):**
-- ✓ Updated hailo_florence_service.py to use HailoDeviceClient instead of direct VDevice/InferModel
-- ✓ Added proper VDevice release in cleanup method
-- ✓ Converted threading.Lock to asyncio.Lock
-- ✓ Updated hailo-florence.service systemd unit with device manager dependencies
-- ✓ Fixed model file permissions issue (chmod 644 on .hef, chmod 755 on directories)
-- ✓ Service starts successfully and loads encoder/decoder models via device manager
-- ✓ Health endpoint reports model_loaded: true
-- ✓ Smoke test passed: Florence API processes images and returns captions (inference_time: ~2.1s)
 
 ### Phase 1.5c: Concurrent Service Validation
 
