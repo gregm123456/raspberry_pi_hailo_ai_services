@@ -277,6 +277,31 @@ python3 test_concurrent_services.py
 - [test_multi_network_load.py](test_multi_network_load.py) — Research script for multi-network feasibility
 
 ## Performance Notes
+### Device Manager Model Caching & Persistence
+
+**Model Residency:**
+The device manager holds models in memory and reuses them across requests—models stay loaded in the Hailo-10H device memory (VRAM) as long as the manager is running. Once a model is loaded, subsequent inference calls from any service do not reload it from disk.
+
+**How It Works:**
+1. **Single Exclusive VDevice:** The device manager process owns the only VDevice connection to `/dev/hailo0`. Services (hailo-vision, hailo-clip, hailo-whisper, etc.) cannot create their own VDevice—they would fail with `HAILO_OUT_OF_PHYSICAL_DEVICES`.
+2. **Model Registry & Caching:** The manager maintains a registry of loaded models. When a service requests inference:
+  - If the model is already loaded, it is reused immediately.
+  - If not, it is loaded from disk into the VDevice, cached, and then used for inference.
+3. **Request Serialization:** All inference requests are queued and processed by a single worker thread. This guarantees only one model runs inference at a time, prevents device contention, and allows requests to wait in queue while models stay resident.
+4. **Model Lifecycle:**
+  - **Load time:** Once, on first inference call
+  - **Residency:** Manager keeps models loaded until `unload_model` is called or manager shuts down
+  - **Memory:** Cached models consume Hailo-10H VRAM, not Pi CPU RAM
+
+**Service Integration:**
+When services use `HailoDeviceClient`, they send inference requests to the manager. The manager handles model loading, caching, and serialization. Services do not duplicate model memory and benefit from efficient VRAM usage.
+
+**Current State:**
+If services are not yet integrated with the device manager, each service manages its own device access and model loading, which can lead to conflicts and inefficient memory use. Once integrated, the device manager architecture enables concurrent, efficient operation.
+
+### Hailo-10H VRAM vs Pi CPU RAM
+
+The Hailo-10H NPU has 8 GB of dedicated VRAM, separate from the Raspberry Pi's CPU RAM (e.g., 4 GB). The device manager loads models into Hailo VRAM, not CPU RAM, so model caching does not compete with service memory. This allows multiple large models to remain resident on the NPU, enabling concurrent service operation without exhausting system RAM. Services send inference requests to the manager, which reuses cached models in VRAM for efficiency. Only the device manager holds the exclusive VDevice and manages model residency; services do not duplicate model memory.
 
 - **Inference Latency**: +~10-20ms per request (IPC overhead)
 - **Throughput**: Limited by single device, not by manager (queueing is fast)
