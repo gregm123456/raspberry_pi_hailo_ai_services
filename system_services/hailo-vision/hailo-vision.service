@@ -1,7 +1,8 @@
 [Unit]
 Description=Hailo Vision (Qwen VLM on Hailo-10H)
-After=network-online.target
+After=network-online.target hailo-device-manager.service
 Wants=network-online.target
+Requires=hailo-device-manager.service
 
 [Service]
 Type=simple

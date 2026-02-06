@@ -2,11 +2,7 @@
 
 **Date:** February 5, 2026  
 **Author:** Greg  
-**Status:** Prerequisites Completed (Feb 5, 2026) - Clean slate established with full purge (configs and state removed), ready for Step-by-Step Implementation.  
-
-## Overview
-
-This plan outlines the careful, phased integration of the **device_manager** feature from the `device-manager` branch into the current `main` branch. The goal is to enable concurrent AI services on the Hailo-10H NPU by introducing a centralized device manager that serializes inference requests, preventing device access conflicts.
+**Status:** Step 3 Complete & Validated (Feb 5, 2026) - hailo-clip and hailo-vision using device manager, smoke tests passed.
 
 **Phase 1 Scope (Low Risk):**
 - Integrate only the `device_manager/` folder and its dependencies.
@@ -84,7 +80,7 @@ Before starting:
 
 **Validation:**
 - No syntax errors: `python3 -m py_compile device_manager/*.py`
-- Install script runs: `./device_manager/install.sh --help`
+- Install script runs: `sudo ./device_manager/install.sh --help`
 
 ### Step 2: Update Hailo-Clip Service for Device Manager
 
@@ -149,6 +145,15 @@ Before starting:
 **Validation:**
 - Service starts and loads model.
 - Chat completions API works for image analysis.
+
+**Completed (Feb 5, 2026):**
+- ✓ Updated hailo_vision_server.py to use HailoDeviceClient instead of direct VDevice/VLM
+- ✓ Added encode_tensor() helper function for base64 encoding numpy arrays
+- ✓ Updated hailo-vision.service systemd unit with device manager dependencies
+- ✓ Fixed model file permissions issue (chmod 644 on .hef, chmod 755 on directories)
+- ✓ Service starts successfully and loads VLM model via device manager
+- ✓ Health endpoint reports model_loaded: true
+- ✓ Smoke test passed: Vision API processes images and returns responses (inference_time: ~3.8s)
 
 ### Step 4: Update Systemd Units for Dependencies
 
@@ -241,11 +246,111 @@ Before starting:
 - Revert commit: `git reset --hard HEAD~1`
 - Reinstall services without device manager.
 
+## Known Issues & Future Fixes
+
+**Permission Fix Required for Model Files:**
+- When hailo-vision downloads models to `/var/lib/hailo-vision/resources/models/`, they are created with restrictive permissions (600) and owned by the hailo-vision user.
+- The device manager (running as hailo-device-manager user) cannot read these files, causing "HAILO_OPEN_FILE_FAILURE(13)" errors.
+- **Fix Applied:** `sudo chmod 644` on model files and `sudo chmod 755` on parent directories to allow device manager read access.
+- **Future:** Install script should set proper permissions automatically, or services should use a common group for model file access.
+
+**Device Manager Install Script Socket Verification Race Condition:**
+- The `device_manager/install.sh` script runs `systemctl restart hailo-device-manager` followed by an immediate socket verification check (`verify_service()`).
+- Since systemd restart is asynchronous, the service may not have fully started by the time the socket check runs, causing a false "socket not created" error.
+- **Fix:** Add a retry loop (with exponential backoff, max ~5 seconds) to `verify_service()` to poll for socket existence before failing.
+- **Status:** Functional—the service does create the socket and runs correctly; the error is cosmetic (timing only). No blocking issue for Phase 1.
+
 ## Next Phases
 
 **Phase 2:** Roll out to hailo-ocr, hailo-depth, hailo-pose (HailoInfer services).
 
 **Phase 3:** Update remaining services and documentation.
 
-**Phase 4:** Full integration testing with all services concurrent.</content>
+**Phase 4:** Full integration testing with all services concurrent.
+
+---
+
+**Footnote: Hailo-Vision Device Manager Conversion Pattern**
+
+For reference when converting other services, here are the specific code changes made to `hailo_vision_server.py` in Step 3:
+
+1. **Imports:**
+   ```python
+   # Before:
+   from hailo_platform import VDevice
+   from hailo_platform.genai import VLM
+   
+   # After:
+   from device_client import HailoDeviceClient
+   ```
+
+2. **VisionService.__init__:**
+   ```python
+   # Before:
+   self.vdevice = None
+   self.vlm = None
+   
+   # After:
+   self.client: Optional[HailoDeviceClient] = None
+   ```
+
+3. **VisionService.initialize():**
+   ```python
+   # Before:
+   params = VDevice.create_params()
+   params.group_id = SHARED_VDEVICE_GROUP_ID
+   self.vdevice = VDevice(params)
+   self.vlm = VLM(self.vdevice, str(self.hef_path))
+   
+   # After:
+   self.client = HailoDeviceClient()
+   await self.client.connect()
+   await self.client.load_model(str(self.hef_path), model_type="vlm_chat")
+   ```
+
+4. **VisionService.process_image():**
+   ```python
+   # Before:
+   response_text = self.vlm.generate_all(prompt=prompt, frames=[preprocessed_image], ...)
+   self.vlm.clear_context()
+   
+   # After:
+   response = await self.client.infer(str(self.hef_path), {
+       "prompt": prompt,
+       "frames": [encode_tensor(preprocessed_image)],
+       "temperature": temperature,
+       "seed": seed,
+       "max_generated_tokens": max_tokens,
+   }, model_type="vlm_chat")
+   response_text = response.get("result", "")
+   ```
+
+5. **VisionService.shutdown():**
+   ```python
+   # Before:
+   if self.vlm: self.vlm.release()
+   if self.vdevice: self.vdevice.release()
+   
+   # After:
+   if self.client: await self.client.disconnect()
+   ```
+
+6. **Added helper function:**
+   ```python
+   def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
+       return {
+           "dtype": str(array.dtype),
+           "shape": list(array.shape),
+           "data_b64": base64.b64encode(array.tobytes()).decode("ascii"),
+       }
+   ```
+
+7. **Systemd unit dependencies:**
+   ```ini
+   [Unit]
+   After=network-online.target hailo-device-manager.service
+   Requires=hailo-device-manager.service
+   ```
+
+This pattern can be applied to other services by replacing direct VDevice/VLM usage with HailoDeviceClient calls.</content>
 <filePath>/home/gregm/raspberry_pi_hailo_ai_services/PLAN_device_manager_integration_phase_1.md

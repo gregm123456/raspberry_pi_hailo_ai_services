@@ -93,3 +93,6 @@ models/downloads/
 
 # HailRT specific
 hailort_python*
+
+#Sample image
+dog.png
