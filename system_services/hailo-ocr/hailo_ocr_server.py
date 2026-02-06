@@ -7,6 +7,7 @@ Uses hailo-apps infrastructure for NPU inference.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -25,6 +26,9 @@ import numpy as np
 from aiohttp import web
 from PIL import Image
 
+# Import device manager client
+from device_client import HailoDeviceClient
+
 # Add vendored hailo-apps to path
 VENDOR_DIR = Path("/opt/hailo-ocr/vendor/hailo-apps")
 if VENDOR_DIR.exists():
@@ -35,7 +39,6 @@ if VENDOR_DIR.exists():
         sys.path.insert(0, str(paddle_ocr_dir))
 
 try:
-    from hailo_apps.python.core.common.hailo_inference import HailoInfer
     from hailo_apps.python.standalone_apps.paddle_ocr.paddle_ocr_utils import (
         det_postprocess,
         resize_with_padding,
@@ -46,7 +49,6 @@ try:
 except ImportError:
     # Fallback for local development if not vendored yet
     try:
-        from hailo_apps.python.core.common.hailo_inference import HailoInfer
         from hailo_apps.python.standalone_apps.paddle_ocr.paddle_ocr_utils import (
             det_postprocess,
             resize_with_padding,
@@ -57,6 +59,29 @@ except ImportError:
     except ImportError as e:
         # We don't exit here because the service might be starting up before venv/vendor is ready during install
         pass
+
+
+def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
+    """Encode numpy array as base64 for device manager."""
+    return {
+        "dtype": str(array.dtype),
+        "shape": list(array.shape),
+        "data_b64": base64.b64encode(array.tobytes()).decode("ascii"),
+    }
+
+
+def decode_tensor(payload: Dict[str, Any]) -> np.ndarray:
+    """Decode base64 tensor from device manager."""
+    dtype = payload.get("dtype")
+    shape = payload.get("shape")
+    data_b64 = payload.get("data_b64")
+
+    if not dtype or shape is None or not data_b64:
+        raise ValueError("tensor must include dtype, shape, and data_b64")
+
+    raw = base64.b64decode(data_b64)
+    array = np.frombuffer(raw, dtype=np.dtype(dtype))
+    return array.reshape(shape).copy()
 
 # Setup logging
 logging.basicConfig(
@@ -74,50 +99,70 @@ cache_lock = asyncio.Lock()
 start_time = time.time()
 
 class HailoOCRService:
-    """Async OCR service using Hailo-10H NPU."""
+    """Async OCR service using Hailo-10H NPU via device manager."""
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.det_infer = None
-        self.rec_infers = {} # Map language -> HailoInfer
-        self.rec_batch_sizes = {}  # Map language -> batch size
+        self.client: Optional[HailoDeviceClient] = None
+        self.detection_model_path: Optional[str] = None
+        self.recognition_model_paths: Dict[str, str] = {}  # lang -> path
+        self.batch_sizes: Dict[str, int] = {}  # lang -> batch_size
+        self.detection_input_shape: Optional[Tuple[int, int, int]] = None
         self.ocr_corrector = None
         self.load_count = 0
         self.device = config.get('hailo_models', {}).get('device', '/dev/hailo0')
+        self.is_loaded = False
         
     async def initialize(self):
-        """Initialize models and engines."""
+        """Initialize models via device manager."""
         logger.info("Initializing Hailo OCR Service...")
         start = time.time()
         
         try:
-            # 1. Initialize Detection Engine
-            det_hef = self._resolve_model_path(self.config['hailo_models']['detection_hef'])
-            logger.info(f"Loading detection model: {det_hef}")
-            self.det_infer = HailoInfer(
-                det_hef,
-                batch_size=self.config['hailo_models'].get('batch_size_det', 1),
-                priority=self.config['hailo_models'].get('priority', 0)
+            # 1. Resolve model paths
+            self.detection_model_path = self._resolve_model_path(
+                self.config['hailo_models']['detection_hef']
             )
-            
-            # 2. Initialize Recognition Engines
+            logger.info(f"Detection model: {self.detection_model_path}")
+
             rec_configs = self.config['hailo_models'].get('recognition_hefs', {})
             batch_size_rec = self.config['hailo_models'].get('batch_size_rec', 8)
             
             for lang, hef_name in rec_configs.items():
                 hef_path = self._resolve_model_path(hef_name)
                 if os.path.exists(hef_path):
-                    logger.info(f"Loading recognition model [{lang}]: {hef_path}")
-                    self.rec_infers[lang] = HailoInfer(
-                        hef_path,
-                        batch_size=batch_size_rec,
-                        priority=self.config['hailo_models'].get('priority', 0) + 1
-                    )
-                    self.rec_batch_sizes[lang] = batch_size_rec
+                    logger.info(f"Recognition model [{lang}]: {hef_path}")
+                    self.recognition_model_paths[lang] = hef_path
+                    self.batch_sizes[lang] = batch_size_rec
                 else:
                     logger.warning(f"Recognition model for {lang} not found at {hef_path}")
 
-            # 3. Initialize Corrector (optional - may not be available if symspellpy is patched out)
+            # 2. Connect to device manager
+            self.client = HailoDeviceClient()
+            await self.client.connect()
+            logger.info("Connected to device manager")
+
+            # 3. Load OCR models via device manager
+            model_params = {
+                "detection_hef_path": self.detection_model_path,
+                "recognition_hefs": self.recognition_model_paths,
+                "batch_sizes": self.batch_sizes,
+            }
+
+            load_response = await self.client.load_model(
+                self.detection_model_path,  # Use detection path as primary key
+                model_type="ocr",
+                model_params=model_params
+            )
+            model_info = load_response.get("model_info", {})
+            shape = model_info.get("detection_input_shape")
+            if shape and len(shape) == 3:
+                self.detection_input_shape = tuple(shape)
+            else:
+                self.detection_input_shape = (640, 640, 3)
+            logger.info("Models loaded via device manager")
+
+            # 4. Initialize Corrector (optional)
             if OcrCorrector and self.config.get('ocr', {}).get('use_corrector', False):
                 dict_path = self.config.get('ocr', {}).get('dictionary_path', 'frequency_dictionary_en_82_765.txt')
                 try:
@@ -125,6 +170,7 @@ class HailoOCRService:
                 except Exception as e:
                     logger.warning(f"Failed to load OcrCorrector: {e}")
 
+            self.is_loaded = True
             self.load_count += 1
             elapsed = time.time() - start
             logger.info(f"Hailo OCR Service ready in {elapsed:.2f}s")
@@ -152,71 +198,62 @@ class HailoOCRService:
         return model_name # Fallback
 
     async def run_detection(self, image_np: np.ndarray) -> Tuple[List[np.ndarray], List[List[int]]]:
-        """Run detection and return crops and boxes."""
-        h, w, _ = self.det_infer.get_input_shape()
+        """Run detection via device manager and return crops and boxes."""
+        h, w, _ = self.detection_input_shape
         processed = resize_with_padding(image_np, target_height=h, target_width=w)
         
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-
-        def callback(completion_info, bindings_list):
-            if completion_info.exception:
-                loop.call_soon_threadsafe(future.set_exception, completion_info.exception)
-            else:
-                result = bindings_list[0].output().get_buffer()
-                loop.call_soon_threadsafe(future.set_result, result)
-
-        self.det_infer.run([processed], callback)
-        raw_result = await future
+        # Run inference via device manager
+        response = await self.client.infer(
+            self.detection_model_path,
+            {
+                "mode": "detection",
+                "image": encode_tensor(processed),
+            },
+            model_type="ocr",
+        )
+        
+        # Decode result
+        raw_result = decode_tensor(response["result"])
         
         # Post-process detection
         crops, boxes = det_postprocess(raw_result, image_np, h, w)
         return crops, boxes
 
     async def run_recognition(self, crops: List[np.ndarray], lang: str) -> List[Tuple[str, float]]:
-        """Run recognition on crops in batches."""
-        if lang not in self.rec_infers:
+        """Run recognition on crops via device manager (batching handled by device manager)."""
+        if lang not in self.recognition_model_paths:
             lang = 'en' # Default
         
-        infer_engine = self.rec_infers.get(lang)
-        if not infer_engine:
+        if lang not in self.recognition_model_paths:
             raise ValueError(f"No recognition model loaded for language: {lang}")
             
-        batch_size = self.rec_batch_sizes.get(lang, self.config['hailo_models'].get('batch_size_rec', 8))
-        results = []
+        batch_size = self.batch_sizes.get(lang, self.config['hailo_models'].get('batch_size_rec', 8))
         
         # Prepare all resized crops
         resized_crops = [resize_with_padding(c) for c in crops]
         
-        for i in range(0, len(resized_crops), batch_size):
-            batch = resized_crops[i:i + batch_size]
-            actual_batch_size = len(batch)
-            
-            # Pad batch to model batch size if needed
-            if actual_batch_size < batch_size:
-                padding = [np.zeros_like(batch[0]) for _ in range(batch_size - actual_batch_size)]
-                batch.extend(padding)
-            
-            loop = asyncio.get_running_loop()
-            future = loop.create_future()
-
-            def callback(completion_info, bindings_list):
-                if completion_info.exception:
-                    loop.call_soon_threadsafe(future.set_exception, completion_info.exception)
-                else:
-                    batch_outputs = [b.output().get_buffer() for b in bindings_list]
-                    loop.call_soon_threadsafe(future.set_result, batch_outputs)
-
-            infer_engine.run(batch, callback)
-            batch_raw_results = await future
-            
-            # Trim padding
-            batch_raw_results = batch_raw_results[:actual_batch_size]
-            
-            # Decode each result
-            for raw in batch_raw_results:
-                decoded = ocr_eval_postprocess(raw)[0]
-                results.append(decoded)
+        # Encode crops for device manager
+        encoded_crops = [encode_tensor(crop) for crop in resized_crops]
+        
+        # Run recognition via device manager (batching handled internally)
+        response = await self.client.infer(
+            self.detection_model_path,  # Use detection path as model key
+            {
+                "mode": "recognition",
+                "language": lang,
+                "crops": encoded_crops,
+                "batch_size": batch_size,
+            },
+            model_type="ocr",
+        )
+        
+        # Decode batch results
+        batch_raw_results = response["result"]  # List of encoded tensors
+        results = []
+        for raw_tensor in batch_raw_results:
+            raw_result = decode_tensor(raw_tensor)
+            decoded = ocr_eval_postprocess(raw_result)[0]
+            results.append(decoded)
                 
         return results
 
@@ -304,8 +341,8 @@ class HailoOCRService:
         uptime = time.time() - start_time
         return {
             "status": "ok",
-            "models_loaded": self.det_infer is not None,
-            "languages_supported": list(self.rec_infers.keys()),
+            "models_loaded": self.is_loaded,
+            "languages_supported": list(self.recognition_model_paths.keys()),
             "memory_usage_mb": self._get_memory_usage(),
             "uptime_seconds": int(uptime),
             "model_loads": self.load_count,
@@ -332,7 +369,7 @@ async def handle_health(request):
 
 async def handle_ready(request):
     """GET /health/ready"""
-    if ocr_service.det_infer is None:
+    if not ocr_service or not ocr_service.is_loaded:
         return web.json_response({"ready": False, "reason": "models_loading"}, status=503)
     return web.json_response({"ready": True})
 
@@ -344,7 +381,7 @@ async def handle_models(request):
         "id": "detection",
         "name": config['hailo_models']['detection_hef'],
         "type": "detection",
-        "status": "loaded" if ocr_service.det_infer else "pending"
+        "status": "loaded" if ocr_service and ocr_service.is_loaded else "pending"
     })
     # Recognition
     for lang, hef in config['hailo_models'].get('recognition_hefs', {}).items():
@@ -353,7 +390,7 @@ async def handle_models(request):
             "name": hef,
             "type": "recognition",
             "language": lang,
-            "status": "loaded" if lang in ocr_service.rec_infers else "not_found"
+            "status": "loaded" if ocr_service and lang in ocr_service.recognition_model_paths else "not_found"
         })
     
     return web.json_response({"data": data, "object": "list"})
@@ -423,11 +460,9 @@ async def start_server():
     
     # Graceful shutdown
     async def on_shutdown(app):
-        logger.info("Closing Hailo sessions...")
-        if ocr_service.det_infer:
-            ocr_service.det_infer.close()
-        for infer in ocr_service.rec_infers.values():
-            infer.close()
+        logger.info("Disconnecting from device manager...")
+        if ocr_service and ocr_service.client:
+            await ocr_service.client.disconnect()
 
     app.on_shutdown.append(on_shutdown)
     

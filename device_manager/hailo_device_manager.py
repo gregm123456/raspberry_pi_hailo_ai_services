@@ -243,6 +243,166 @@ class WhisperHandler(ModelHandler):
         return {"segments": segment_list}
 
 
+@dataclass
+class OcrRuntime:
+    """Runtime state for OCR models (detection + recognition)."""
+    detection_model: Any
+    detection_configured: Any
+    detection_input_shape: tuple
+    recognition_models: Dict[str, Any]  # lang -> InferModel
+    recognition_configured: Dict[str, Any]  # lang -> ConfiguredInferModel
+    batch_sizes: Dict[str, int]  # lang -> batch_size
+
+
+class OcrHandler(ModelHandler):
+    model_type = "ocr"
+
+    def load(
+        self, vdevice: hailo_platform.VDevice, model_path: str, model_params: Dict[str, Any]
+    ) -> Any:
+        det_hef_path = model_params.get("detection_hef_path")
+        rec_hefs = model_params.get("recognition_hefs", {})  # {lang: path}
+        batch_sizes = model_params.get("batch_sizes", {})
+
+        if not det_hef_path:
+            raise ValueError("detection_hef_path is required for ocr")
+        if not rec_hefs:
+            raise ValueError("recognition_hefs dict is required for ocr")
+
+        if not Path(det_hef_path).exists():
+            raise ValueError(f"Detection HEF not found: {det_hef_path}")
+
+        # Load detection model
+        logger.info("Loading OCR detection model: %s", det_hef_path)
+        detection_model = vdevice.create_infer_model(str(det_hef_path))
+        detection_model.input().set_format_type(FormatType.UINT8)
+        detection_model.output().set_format_type(FormatType.FLOAT32)
+        detection_configured = detection_model.configure()
+        detection_input_shape = tuple(detection_model.input().shape)
+
+        # Load recognition models for each language
+        recognition_models = {}
+        recognition_configured = {}
+        for lang, hef_path in rec_hefs.items():
+            if not Path(hef_path).exists():
+                raise ValueError(f"Recognition HEF for {lang} not found: {hef_path}")
+            
+            logger.info("Loading OCR recognition model for %s: %s", lang, hef_path)
+            rec_model = vdevice.create_infer_model(str(hef_path))
+            rec_model.input().set_format_type(FormatType.UINT8)
+            rec_model.output().set_format_type(FormatType.FLOAT32)
+            recognition_models[lang] = rec_model
+            recognition_configured[lang] = rec_model.configure()
+
+        return OcrRuntime(
+            detection_model=detection_model,
+            detection_configured=detection_configured,
+            detection_input_shape=detection_input_shape,
+            recognition_models=recognition_models,
+            recognition_configured=recognition_configured,
+            batch_sizes=batch_sizes,
+        )
+
+    def infer(self, model: OcrRuntime, input_data: Any) -> Any:
+        mode = input_data.get("mode")
+        
+        if mode == "detection":
+            # Single detection inference
+            image_tensor = decode_tensor(input_data.get("image"))
+            
+            bindings = model.detection_configured.create_bindings()
+            
+            # Set input buffer
+            input_buffer = np.empty(model.detection_model.input().shape, dtype=np.uint8)
+            input_buffer[:] = image_tensor
+            bindings.input().set_buffer(input_buffer)
+            
+            # Set output buffer
+            output_buffer = np.empty(model.detection_model.output().shape, dtype=np.float32)
+            bindings.output().set_buffer(output_buffer)
+            
+            # Run inference
+            model.detection_configured.wait_for_async_ready(timeout_ms=1000)
+            job = model.detection_configured.run_async([bindings])
+            job.wait(timeout_ms=1000)
+            
+            return encode_tensor(output_buffer.copy())
+
+        elif mode == "recognition":
+            # Batched recognition inference
+            lang = input_data.get("language", "en")
+            crops = input_data.get("crops", [])
+            batch_size = input_data.get("batch_size", model.batch_sizes.get(lang, 8))
+
+            if lang not in model.recognition_models:
+                raise ValueError(f"Unsupported language: {lang}. Available: {list(model.recognition_models.keys())}")
+
+            rec_model = model.recognition_models[lang]
+            rec_configured = model.recognition_configured[lang]
+            
+            # Decode all crops
+            decoded_crops = [decode_tensor(crop) for crop in crops]
+            
+            results = []
+            # Process in batches
+            for i in range(0, len(decoded_crops), batch_size):
+                batch = decoded_crops[i:i + batch_size]
+                actual_batch_size = len(batch)
+
+                # Pad to batch_size if needed
+                if actual_batch_size < batch_size:
+                    padding_shape = batch[0].shape
+                    padding = np.zeros(padding_shape, dtype=batch[0].dtype)
+                    batch.extend([padding] * (batch_size - actual_batch_size))
+
+                # Create bindings for each item in batch
+                bindings_list = []
+                output_buffers = []
+                
+                for j in range(batch_size):
+                    bindings = rec_configured.create_bindings()
+                    
+                    # Set input buffer
+                    input_buffer = np.empty(rec_model.input().shape, dtype=np.uint8)
+                    input_buffer[:] = batch[j]
+                    bindings.input().set_buffer(input_buffer)
+                    
+                    # Set output buffer
+                    output_buffer = np.empty(rec_model.output().shape, dtype=np.float32)
+                    bindings.output().set_buffer(output_buffer)
+                    output_buffers.append(output_buffer)
+                    
+                    bindings_list.append(bindings)
+
+                # Run batch inference
+                rec_configured.wait_for_async_ready(timeout_ms=1000)
+                job = rec_configured.run_async(bindings_list)
+                job.wait(timeout_ms=1000)
+
+                # Collect outputs, trim padding
+                for j in range(actual_batch_size):
+                    results.append(encode_tensor(output_buffers[j].copy()))
+
+            return results
+
+        else:
+            raise ValueError(f"Unknown OCR mode: {mode}. Must be 'detection' or 'recognition'")
+
+    def unload(self, model: OcrRuntime) -> None:
+        # Release configured models and infer models
+        for obj in [model.detection_configured, model.detection_model]:
+            if hasattr(obj, "release"):
+                obj.release()
+        
+        for configured in model.recognition_configured.values():
+            if hasattr(configured, "release"):
+                configured.release()
+        
+        for infer_model in model.recognition_models.values():
+            if hasattr(infer_model, "release"):
+                infer_model.release()
+
+
 class ClipHandler(ModelHandler):
     model_type = "clip"
 
@@ -383,6 +543,7 @@ class HailoDeviceManager:
             VlmChatHandler.model_type: VlmChatHandler(),
             ClipHandler.model_type: ClipHandler(),
             WhisperHandler.model_type: WhisperHandler(),
+            OcrHandler.model_type: OcrHandler(),
         }
         self._queue_depth = 0
 
@@ -486,7 +647,11 @@ class HailoDeviceManager:
             logger.error("Error handling client %s: %s", client_id, e)
         finally:
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except (BrokenPipeError, ConnectionResetError):
+                # Client disconnected while closing; safe to ignore.
+                pass
 
     async def process_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         request_id = request.get("request_id")
@@ -560,12 +725,18 @@ class HailoDeviceManager:
 
         key = self._model_key(model_type, model_path)
         if key in self.loaded_models:
-            return {
+            response = {
                 "status": "ok",
                 "model_path": model_path,
                 "model_type": model_type,
                 "message": "Model already loaded",
             }
+            if model_type == "ocr":
+                runtime = self.loaded_models[key].model
+                response["model_info"] = {
+                    "detection_input_shape": list(runtime.detection_input_shape),
+                }
+            return response
 
         try:
             handler = self._get_handler(model_type)
@@ -579,12 +750,17 @@ class HailoDeviceManager:
                 loaded_at=now,
                 last_used=now,
             )
-            return {
+            response = {
                 "status": "ok",
                 "model_path": model_path,
                 "model_type": model_type,
                 "message": "Model loaded",
             }
+            if model_type == "ocr":
+                response["model_info"] = {
+                    "detection_input_shape": list(model.detection_input_shape),
+                }
+            return response
         except Exception as e:
             logger.error("Failed to load model %s: %s", model_path, e)
             return {"error": f"Failed to load model: {e}"}

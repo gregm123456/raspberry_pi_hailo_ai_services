@@ -94,5 +94,8 @@ models/downloads/
 # HailRT specific
 hailort_python*
 
-#Sample image
+#Samples
 dog.png
+card.png
+audio2.wav
+text.png

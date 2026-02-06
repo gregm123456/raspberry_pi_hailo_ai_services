@@ -210,8 +210,9 @@ except Exception as e:
     exit(1)
 RENDER_CONFIG
     
-    # 3. Install server script
+    # 3. Install server script and device client
     install -m 0755 "${SCRIPT_DIR}/hailo_ocr_server.py" "${INSTALL_DIR}/hailo_ocr_server.py"
+    install -m 0644 "${SCRIPT_DIR}/device_client.py" "${INSTALL_DIR}/device_client.py"
     
     # 4. Set permissions
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}" "${DATA_DIR}"
