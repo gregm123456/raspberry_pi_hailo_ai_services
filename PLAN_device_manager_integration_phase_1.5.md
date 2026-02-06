@@ -44,6 +44,8 @@ Before starting:
 - Keep existing config, ports, and OpenAI Whisper API unchanged.
 
 **Steps:**
+0. Uninstall hailo-whisper completely, including system-installed .yaml and other system-level service data files specific to hailo-whisper, for a clean slate.
+
 1. In `hailo_whisper_server.py`, update imports:
    ```python
    from device_client import HailoDeviceClient
@@ -59,8 +61,6 @@ Before starting:
 
 4. Update `unload()`:
    - Replace `self._vdevice.release()` with `await client.unload_model(hef_path)`.
-
-5. Ensure backward compatibility: if device manager unavailable, fall back to mock mode.
 
 **Specific Code Changes:**
 - In `WhisperModelManager.load()`: Replace VDevice setup with async client initialization.

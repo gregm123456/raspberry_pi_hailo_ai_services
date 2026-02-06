@@ -139,6 +139,7 @@ create_state_directories() {
     cp "${SERVER_SCRIPT}" "${SERVICE_DIR}/"
     cp "${RENDER_SCRIPT}" "${SERVICE_DIR}/"
     cp "${REQUIREMENTS_SRC}" "${SERVICE_DIR}/"
+    cp "${SCRIPT_DIR}/device_client.py" "${SERVICE_DIR}/"
 
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}"
     chmod 0755 "${SERVICE_DIR}/hailo_whisper_server.py"

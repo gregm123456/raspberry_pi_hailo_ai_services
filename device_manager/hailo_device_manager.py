@@ -55,7 +55,7 @@ def setup_logging() -> None:
 try:
     import hailo_platform
     from hailo_platform import FormatType
-    from hailo_platform.genai import VLM
+    from hailo_platform.genai import VLM, Speech2Text, Speech2TextTask
 except ImportError as e:
     setup_logging()
     logger.error("Missing dependency: %s", e)
@@ -197,6 +197,52 @@ class ClipRuntime:
     text_output_layer: str
 
 
+class WhisperHandler(ModelHandler):
+    model_type = "whisper"
+
+    def load(
+        self, vdevice: hailo_platform.VDevice, model_path: str, model_params: Dict[str, Any]
+    ) -> Any:
+        return Speech2Text(vdevice, model_path)
+
+    def infer(self, model: Any, input_data: Any) -> Any:
+        audio = input_data.get("audio")
+        language = input_data.get("language", "en")
+        task_str = input_data.get("task", "transcribe")
+
+        if not audio:
+            raise ValueError("audio data is required for whisper")
+
+        # Convert list back to numpy array if needed
+        if isinstance(audio, list):
+            audio = np.array(audio, dtype=np.float32)
+
+        # Map task string to Speech2TextTask enum
+        task = Speech2TextTask.TRANSCRIBE if task_str == "transcribe" else Speech2TextTask.TRANSLATE
+
+        # Generate transcription segments
+        segments = model.generate_all_segments(
+            audio_data=audio,
+            task=task,
+            language=language,
+            timeout_ms=15000,
+        )
+
+        # Convert segments to dict format
+        segment_list = []
+        for idx, segment in enumerate(segments or []):
+            segment_list.append(
+                {
+                    "id": idx,
+                    "start": float(segment.start_sec),
+                    "end": float(segment.end_sec),
+                    "text": segment.text,
+                }
+            )
+
+        return {"segments": segment_list}
+
+
 class ClipHandler(ModelHandler):
     model_type = "clip"
 
@@ -336,6 +382,7 @@ class HailoDeviceManager:
             VlmHandler.model_type: VlmHandler(),
             VlmChatHandler.model_type: VlmChatHandler(),
             ClipHandler.model_type: ClipHandler(),
+            WhisperHandler.model_type: WhisperHandler(),
         }
         self._queue_depth = 0
 

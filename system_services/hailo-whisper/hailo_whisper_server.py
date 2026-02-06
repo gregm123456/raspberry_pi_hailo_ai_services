@@ -19,8 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from aiohttp import web
 
-from hailo_platform import VDevice
-from hailo_platform.genai import Speech2Text, Speech2TextTask
+from device_client import HailoDeviceClient
 
 from hailo_apps.python.core.common.core import resolve_hef_path
 from hailo_apps.python.core.common.defines import HAILO10H_ARCH, WHISPER_CHAT_APP
@@ -89,8 +88,8 @@ class WhisperServiceConfig:
 class WhisperModelManager:
     def __init__(self, config: WhisperServiceConfig) -> None:
         self.config = config
-        self._vdevice: Optional[VDevice] = None
-        self._speech2text: Optional[Speech2Text] = None
+        self._client: Optional[HailoDeviceClient] = None
+        self._hef_path: Optional[str] = None
         self._loaded_at = 0.0
         self._last_used = 0.0
         self._lock = asyncio.Lock()
@@ -98,11 +97,11 @@ class WhisperModelManager:
 
     @property
     def is_loaded(self) -> bool:
-        return self._speech2text is not None
+        return self._hef_path is not None
 
     async def load(self) -> None:
         async with self._lock:
-            if self._speech2text is not None:
+            if self._hef_path is not None:
                 return
 
             logger.info("Loading Whisper model: %s", self.config.model_name)
@@ -116,28 +115,37 @@ class WhisperModelManager:
                     "Whisper HEF not found. Run install.sh to download resources."
                 )
 
-            params = VDevice.create_params()
-            self._vdevice = VDevice(params)
-            self._speech2text = Speech2Text(self._vdevice, str(hef_path))
+            self._hef_path = str(hef_path)
+            self._client = HailoDeviceClient()
+            try:
+                await self._client.connect()
+                logger.info("Connected to device manager")
+                await self._client.load_model(self._hef_path, model_type="whisper")
+            except Exception as e:
+                logger.error("Failed to connect to device manager: %s", e)
+                self._client = None
+                self._hef_path = None
+                raise
+
             self._loaded_at = time.time()
             self._last_used = self._loaded_at
             logger.info("Whisper model loaded from %s", hef_path)
 
     async def unload(self) -> None:
         async with self._lock:
-            if self._speech2text is not None:
+            if self._client is not None:
                 try:
-                    self._speech2text.release()
+                    if self._hef_path:
+                        await self._client.unload_model(self._hef_path, model_type="whisper")
                 except Exception:
-                    logger.warning("Failed to release Speech2Text", exc_info=True)
-            if self._vdevice is not None:
+                    logger.warning("Failed to unload model from device manager", exc_info=True)
                 try:
-                    self._vdevice.release()
+                    await self._client.disconnect()
                 except Exception:
-                    logger.warning("Failed to release VDevice", exc_info=True)
+                    logger.warning("Failed to disconnect from device manager", exc_info=True)
 
-            self._speech2text = None
-            self._vdevice = None
+            self._client = None
+            self._hef_path = None
             self._loaded_at = 0.0
             self._last_used = 0.0
             logger.info("Whisper model unloaded")
@@ -146,15 +154,27 @@ class WhisperModelManager:
         if not self.is_loaded:
             await self.load()
 
-        assert self._speech2text is not None
+        assert self._client is not None
+        assert self._hef_path is not None
+        
         async with self._infer_lock:
             self._last_used = time.time()
-            return self._speech2text.generate_all_segments(
-                audio_data=audio_data,
-                task=Speech2TextTask.TRANSCRIBE,
-                language=language,
-                timeout_ms=15000,
-            )
+            try:
+                response = await self._client.infer(
+                    self._hef_path,
+                    {
+                        "audio": audio_data.tolist() if isinstance(audio_data, np.ndarray) else audio_data,
+                        "language": language,
+                        "task": "transcribe",
+                    },
+                    model_type="whisper",
+                )
+                # Device manager returns segments in the response
+                segments = response.get("result", {}).get("segments", [])
+                return segments
+            except Exception as e:
+                logger.error("Transcription inference failed: %s", e, exc_info=True)
+                raise
 
     async def maybe_unload_after_request(self) -> None:
         if self.config.keep_alive == 0:
@@ -292,9 +312,14 @@ class WhisperService:
 
             segment_payloads = []
             for idx, segment in enumerate(segments or []):
-                start_sec = getattr(segment, "start_sec", 0.0)
-                end_sec = getattr(segment, "end_sec", 0.0)
-                text = getattr(segment, "text", "")
+                if isinstance(segment, dict):
+                    start_sec = segment.get("start", 0.0)
+                    end_sec = segment.get("end", 0.0)
+                    text = segment.get("text", "")
+                else:
+                    start_sec = getattr(segment, "start_sec", 0.0)
+                    end_sec = getattr(segment, "end_sec", 0.0)
+                    text = getattr(segment, "text", "")
                 segment_payloads.append(
                     {
                         "id": idx,
