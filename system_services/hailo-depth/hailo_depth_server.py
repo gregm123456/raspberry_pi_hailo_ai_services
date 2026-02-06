@@ -4,6 +4,9 @@ Hailo Depth Service - Monocular/Stereo Depth Estimation on Hailo-10H
 
 REST API server exposing depth estimation inference.
 Supports image upload and returns depth maps as NumPy arrays or visualization.
+
+Uses HailoDeviceClient to communicate with hailo-device-manager for
+device serialization and transparent model switching.
 """
 
 import asyncio
@@ -14,7 +17,6 @@ import logging
 import os
 import sys
 import tempfile
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -32,11 +34,18 @@ except ImportError as e:
     print("Install with: pip3 install aiohttp pyyaml numpy pillow")
     sys.exit(1)
 
+# Import device manager client
 try:
-    from hailo_apps.python.core.common.hailo_inference import HailoInfer
+    from device_client import HailoDeviceClient
+except ImportError as e:
+    print(f"Error: Failed to import device_client: {e}")
+    print("Ensure device_client.py is on PYTHONPATH")
+    sys.exit(1)
+
+try:
     from hailo_apps.python.core.common.hef_utils import get_hef_input_shape
 except ImportError as e:
-    print(f"Error: HailoRT/Hailo apps not available: {e}")
+    print(f"Error: hailo-apps not available: {e}")
     print("Ensure hailo-apps is on PYTHONPATH and HailoRT is installed.")
     sys.exit(1)
 
@@ -50,6 +59,29 @@ logger = logging.getLogger('hailo-depth')
 # Configuration paths
 XDG_CONFIG_HOME = os.environ.get('XDG_CONFIG_HOME', '/etc/xdg')
 CONFIG_JSON = os.path.join(XDG_CONFIG_HOME, 'hailo-depth', 'hailo-depth.json')
+
+
+def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
+    """Encode numpy array as base64 for device manager."""
+    return {
+        "dtype": str(array.dtype),
+        "shape": list(array.shape),
+        "data_b64": base64.b64encode(array.tobytes()).decode("ascii"),
+    }
+
+
+def decode_tensor(payload: Dict[str, Any]) -> np.ndarray:
+    """Decode base64 tensor from device manager."""
+    dtype = payload.get("dtype")
+    shape = payload.get("shape")
+    data_b64 = payload.get("data_b64")
+
+    if not dtype or shape is None or not data_b64:
+        raise ValueError("tensor must include dtype, shape, and data_b64")
+
+    raw = base64.b64decode(data_b64)
+    array = np.frombuffer(raw, dtype=np.dtype(dtype))
+    return array.reshape(shape).copy()
 
 
 class DepthServiceConfig:
@@ -120,18 +152,17 @@ class DepthServiceConfig:
 
 
 class DepthEstimator:
-    """Depth estimation inference engine using Hailo-10H NPU."""
+    """Depth estimation inference engine using Hailo-10H NPU via device manager."""
     
     def __init__(self, config: DepthServiceConfig):
         self.config = config
-        self.model = None
-        self.hailo_infer = None
+        self.client: Optional[HailoDeviceClient] = None
+        self.model_path: Optional[str] = None
         self.input_shape = None
         self.input_layout = None
         self.input_height = None
         self.input_width = None
         self.input_channels = None
-        self.infer_lock = asyncio.Lock()
         self.is_loaded = False
         self.last_error = None
         self.load_time_ms = 0
@@ -139,13 +170,12 @@ class DepthEstimator:
         self.inference_count = 0
     
     async def initialize(self):
-        """Initialize model and prepare for inference."""
+        """Initialize model via device manager and prepare for inference."""
         logger.info(f"Initializing depth model: {self.config.model_name}")
         logger.info(f"Model directory: {self.config.model_dir}")
-        logger.info(f"Postprocess directory: {self.config.postprocess_dir}")
         
         try:
-            # Verify model and postprocess files exist
+            # Verify model file exists
             model_hef = os.path.join(
                 self.config.model_dir,
                 f"{self.config.model_name}.hef"
@@ -154,30 +184,27 @@ class DepthEstimator:
             if not os.path.exists(model_hef):
                 raise FileNotFoundError(f"Model HEF not found at {model_hef}")
 
+            self.model_path = model_hef
+
             # Resolve input shape from HEF
             try:
                 self.input_shape = get_hef_input_shape(model_hef)
             except Exception as e:
-                logger.warning(f"Failed to parse HEF shape; falling back: {e}")
-                self.input_shape = None
+                logger.warning(f"Failed to parse HEF shape; assuming (1,3,256,320): {e}")
+                self.input_shape = (1, 3, 256, 320)
 
-            # Initialize Hailo inference wrapper
+            # Connect to device manager
             start_time = time.time()
-            self.hailo_infer = HailoInfer(
-                model_hef,
-                batch_size=1,
-                input_type="UINT8",
-                output_type="FLOAT32",
-                priority=0
-            )
+            self.client = HailoDeviceClient()
+            await self.client.connect()
 
-            if self.input_shape is None:
-                self.input_shape = self.hailo_infer.get_input_shape()
+            # Load model via device manager
+            await self.client.load_model(model_hef, model_type="depth")
 
             self._parse_input_shape(self.input_shape)
             self.load_time_ms = int((time.time() - start_time) * 1000)
 
-            logger.info(f"HailoRT initialized in {self.load_time_ms}ms")
+            logger.info(f"Device manager connected in {self.load_time_ms}ms")
             logger.info(f"Depth type: {self.config.model_type}")
             logger.info(
                 "Input shape: %s, layout=%s, size=%sx%s",
@@ -197,10 +224,6 @@ class DepthEstimator:
             
         except Exception as e:
             self.last_error = str(e)
-            if "HAILO_OUT_OF_PHYSICAL_DEVICES" in self.last_error:
-                logger.warning("Hailo device busy; service will retry on demand")
-                self.is_loaded = False
-                return
             logger.error(f"Model initialization failed: {e}")
             raise
     
@@ -244,11 +267,16 @@ class DepthEstimator:
             # Preprocess image for model input
             input_tensor = self._preprocess_image(img)
 
-            # Run HailoRT inference (threaded to avoid blocking event loop)
-            async with self.infer_lock:
-                output = await asyncio.to_thread(self._run_inference_sync, input_tensor)
+            # Run inference via device manager
+            result = await self.client.infer(
+                self.model_path,
+                {"input": encode_tensor(input_tensor)},
+                model_type="depth"
+            )
 
-            depth_map = self._extract_depth_output(output)
+            # Decode output
+            output_tensor = decode_tensor(result["result"])
+            depth_map = self._extract_depth_output({"output": output_tensor})
             depth_map = depth_map.astype(np.float32)
 
             # Resize back to original size if needed
@@ -355,42 +383,6 @@ class DepthEstimator:
 
         return img_array
 
-    def _run_inference_sync(self, input_tensor: np.ndarray) -> Any:
-        """Run a single inference and return output."""
-        if self.hailo_infer is None:
-            raise RuntimeError("Hailo inference not initialized")
-
-        result = {"output": None, "error": None}
-        done = threading.Event()
-
-        def _callback(completion_info, bindings_list, **kwargs):
-            if completion_info and getattr(completion_info, "exception", None):
-                result["error"] = completion_info.exception
-                done.set()
-                return
-
-            outputs = []
-            for bindings in bindings_list:
-                if len(bindings._output_names) == 1:
-                    outputs.append(bindings.output().get_buffer())
-                else:
-                    outputs.append({
-                        name: bindings.output(name).get_buffer()
-                        for name in bindings._output_names
-                    })
-            result["output"] = outputs[0] if outputs else None
-            done.set()
-
-        self.hailo_infer.run([input_tensor], _callback)
-        if self.hailo_infer.last_infer_job is not None:
-            self.hailo_infer.last_infer_job.wait(10000)
-        if not done.wait(10):
-            raise TimeoutError("Inference did not complete in time")
-        if result["error"] is not None:
-            raise RuntimeError(f"Inference error: {result['error']}")
-        if result["output"] is None:
-            raise RuntimeError("Inference returned no output")
-        return result["output"]
 
     def _extract_depth_output(self, output: Any) -> np.ndarray:
         """Extract a 2D depth map from model output."""
@@ -500,14 +492,14 @@ class DepthEstimator:
             return ""
     
     async def shutdown(self):
-        """Unload model and clean up resources."""
-        if self.hailo_infer:
-            logger.info("Unloading depth model")
+        """Disconnect from device manager and clean up resources."""
+        if self.client:
+            logger.info("Disconnecting from device manager")
             try:
-                self.hailo_infer.close()
+                await self.client.disconnect()
             except Exception as e:
-                logger.warning(f"Error during model unload: {e}")
-            self.hailo_infer = None
+                logger.warning(f"Error during disconnect: {e}")
+            self.client = None
         self.is_loaded = False
 
 
@@ -682,6 +674,8 @@ async def create_app(estimator: DepthEstimator) -> web.Application:
 
 async def main():
     """Main entry point."""
+    estimator = None
+    
     try:
         # Load configuration
         config = DepthServiceConfig()
@@ -704,9 +698,8 @@ async def main():
         logger.info(f"Health: GET /health")
         logger.info(f"API docs: POST /v1/depth/estimate")
         
-        # Keep running
-        while True:
-            await asyncio.sleep(3600)
+        # Keep running indefinitely
+        await asyncio.sleep(float('inf'))
     
     except KeyboardInterrupt:
         logger.info("Shutdown signal received")
@@ -714,7 +707,8 @@ async def main():
         logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
     finally:
-        await estimator.shutdown()
+        if estimator:
+            await estimator.shutdown()
 
 
 if __name__ == '__main__':

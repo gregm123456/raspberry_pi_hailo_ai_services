@@ -3,6 +3,14 @@ Pytest configuration for hailo-depth tests.
 """
 
 import pytest
+import asyncio
+
+
+def pytest_configure(config):
+    """Configure pytest plugins and markers."""
+    config.addinivalue_line(
+        "markers", "asyncio: mark test as async (requires pytest-asyncio)"
+    )
 
 
 def pytest_addoption(parser):
@@ -20,6 +28,14 @@ def pytest_addoption(parser):
         default=30,
         help="Request timeout in seconds"
     )
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an event loop for async tests."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture(scope="session")

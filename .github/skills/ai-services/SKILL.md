@@ -641,9 +641,13 @@ sudo systemctl restart service-name
 
 **Lesson: Model file permissions must be accessible by device_manager**
 
-**Context:** Services that download or manage HEF models must ensure the files have permissions allowing the device manager (running as `hailo-device-mgr` user) to read them.
+**Context:** Services that download or manage HEF models must ensure the files have permissions allowing the device manager (running as `hailo-device-mgr` user) to read them. This includes:
+  - Setting group ownership of model files to `hailo-device-mgr` (e.g., `chown hailo-depth:hailo-device-mgr model.hef`)
+  - Setting permissions to 640 (owner read/write, group read, others none)
+  - Ensuring the service user (e.g., `hailo-depth`) is in the `hailo-device-mgr` group (`usermod -aG hailo-depth hailo-device-mgr`)
+  - Parent directories must also be group-accessible (e.g., `drwxr-x---`)
 
-**Action:** For example, for hailo-ocr, we set group permissions to `hailo-device-mgr:hailo-ocr` with 640 permissions (owner read/write, group read, others none). Ensure the service user is in the appropriate group.
+**Additional Integration Note:** When adding new model types (e.g., depth), you must update the installed device manager code (e.g., copy updated `hailo_device_manager.py` to `/opt/hailo-device-manager/`) so the running service recognizes and supports the new handler. Restart the device manager service after updating.
 
 **Lesson: Testing practices for device manager services**
 

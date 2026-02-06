@@ -194,6 +194,12 @@ configure_device_permissions() {
 
     log "Adding ${SERVICE_USER} to ${device_group} group"
     usermod -aG "${device_group}" "${SERVICE_USER}"
+
+    # Also add to hailo-device-mgr group for device manager socket access
+    if getent group hailo-device-mgr >/dev/null 2>&1; then
+        log "Adding ${SERVICE_USER} to hailo-device-mgr group for device manager access"
+        usermod -aG hailo-device-mgr "${SERVICE_USER}"
+    fi
 }
 
 create_state_directories() {

@@ -497,6 +497,66 @@ class ClipHandler(ModelHandler):
                 obj.release()
 
 
+@dataclass
+class DepthRuntime:
+    """Runtime state for depth estimation model."""
+    infer_model: Any
+    configured_model: Any
+    input_shape: tuple
+
+
+class DepthHandler(ModelHandler):
+    model_type = "depth"
+
+    def load(
+        self, vdevice: hailo_platform.VDevice, model_path: str, model_params: Dict[str, Any]
+    ) -> Any:
+        """Load a monocular depth estimation model (e.g., scdepthv3)."""
+        if not Path(model_path).exists():
+            raise ValueError(f"Model HEF not found: {model_path}")
+
+        logger.info("Loading depth model: %s", model_path)
+        infer_model = vdevice.create_infer_model(str(model_path))
+        infer_model.input().set_format_type(FormatType.UINT8)
+        infer_model.output().set_format_type(FormatType.FLOAT32)
+        configured_model = infer_model.configure()
+        input_shape = tuple(infer_model.input().shape)
+
+        return DepthRuntime(
+            infer_model=infer_model,
+            configured_model=configured_model,
+            input_shape=input_shape,
+        )
+
+    def infer(self, model: DepthRuntime, input_data: Any) -> Any:
+        """Run depth estimation inference."""
+        input_tensor = decode_tensor(input_data.get("input"))
+
+        bindings = model.configured_model.create_bindings()
+
+        # Set input buffer
+        input_buffer = np.empty(model.infer_model.input().shape, dtype=np.uint8)
+        input_buffer[:] = input_tensor
+        bindings.input().set_buffer(input_buffer)
+
+        # Set output buffer
+        output_buffer = np.empty(model.infer_model.output().shape, dtype=np.float32)
+        bindings.output().set_buffer(output_buffer)
+
+        # Run inference
+        model.configured_model.wait_for_async_ready(timeout_ms=1000)
+        job = model.configured_model.run_async([bindings])
+        job.wait(timeout_ms=1000)
+
+        return encode_tensor(output_buffer.copy())
+
+    def unload(self, model: DepthRuntime) -> None:
+        """Release depth model resources."""
+        for obj in (model.configured_model, model.infer_model):
+            if hasattr(obj, "release"):
+                obj.release()
+
+
 def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
     return {
         "dtype": str(array.dtype),
@@ -544,6 +604,7 @@ class HailoDeviceManager:
             ClipHandler.model_type: ClipHandler(),
             WhisperHandler.model_type: WhisperHandler(),
             OcrHandler.model_type: OcrHandler(),
+            DepthHandler.model_type: DepthHandler(),
         }
         self._queue_depth = 0
 

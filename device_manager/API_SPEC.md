@@ -181,6 +181,11 @@ Supported `model_type` values:
 - `vlm` - Hailo GenAI VLM via `hailo_platform.genai.VLM`
 - `vlm_chat` - VLM chat using `VLM.generate_all`
 - `clip` - CLIP image/text encoders using `create_infer_model`
+- `whisper` - Speech-to-text transcription via `hailo_platform.genai.Speech2Text`
+- `ocr` - Optical character recognition (detection + recognition) with device manager serialization
+- `depth` - Monocular depth estimation (e.g., scdepthv3)
+  - Input: Preprocessed image tensor (float32 or uint8, [1,3,H,W] in NCHW format)
+  - Output: Depth map tensor (float32, [1,1,H,W] in NCHW format)
 
 ## Tensor Payload Format
 

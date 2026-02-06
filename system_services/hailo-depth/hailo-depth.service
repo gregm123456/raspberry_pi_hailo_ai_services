@@ -28,7 +28,8 @@ Environment=HAILO_PRINT_TO_SYSLOG=1
 Environment=PYTHONUNBUFFERED=1
 
 # Use the venv Python with proper PYTHONPATH
-Environment="PYTHONPATH=/opt/hailo-depth/vendor/hailo-apps:/opt/hailo-depth/vendor/hailo-apps/hailo_apps"
+# Include device manager client path for HailoDeviceClient import
+Environment="PYTHONPATH=/opt/hailo-depth/vendor/hailo-apps:/opt/hailo-depth/vendor/hailo-apps/hailo_apps:/opt/hailo-device-manager"
 
 ExecStart=/opt/hailo-depth/venv/bin/python /opt/hailo-depth/hailo_depth_server.py
 

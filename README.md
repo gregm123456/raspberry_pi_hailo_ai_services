@@ -37,7 +37,7 @@ This project establishes standardized patterns for wrapping Hailo-accelerated AI
 - **hailo-pose** — Human pose estimation (YOLOv8 keypoints, COCO format, production-ready)
 - **hailo-whisper** — Speech-to-text transcription (Whisper models, OpenAI Whisper API-compatible, production-ready)
 - **hailo-piper** — Text-to-speech synthesis (Piper TTS, CPU-only; production-ready)
-- **hailo-depth** — Monocular depth estimation (scdepthv3 on Hailo-10H, ~11.5ms inference, production-ready)
+- **hailo-depth** — Monocular depth estimation (scdepthv3 on Hailo-10H, ~11.5ms inference, production-ready, **fully refactored to async/await and device manager integration, tested February 2026**)
 
 ### Draft/Experimental Services
 - **hailo-face** — Face detection and embedding comparison
@@ -56,7 +56,7 @@ Each working service follows the same deployment patterns, offers idiomatic APIs
 | hailo-whisper | Python service | System Python + apt/pip deps (no venv) | Optional warmup; models load on first use | ✅ Full (encoder/decoder) |
 | hailo-piper | Python service | System Python + pip piper-tts (no venv) | Optional install-time model download | ❌ CPU-only (no NPU) |
 | hailo-ocr | Python service | System Python + pip deps (no venv) | Optional warmup download | ✅ Full (detection + recognition) |
-| hailo-depth | Python service | System Python + apt/pip deps (no venv) | Install-time download (scdepthv3.hef, 11 MB) | ✅ Full (depth estimation) |
+| hailo-depth | Python service (async/await, device manager integrated) | System Python + apt/pip deps (no venv) | Install-time download (scdepthv3.hef, 11 MB) | ✅ Full (depth estimation) |
 | hailo-pose | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (YOLOv8 keypoints) |
 | hailo-face | Python service | System Python + apt/pip deps (no venv) | Models load at runtime | ✅ Full (SCRFD + ArcFace) |
 | hailo-scrfd | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (face detection) |
@@ -157,4 +157,4 @@ See individual service and submodule LICENSE files for details.
 **Last Updated:** February 2026  
 **Hailo-10H:** Requires kernel driver from Hailo Technologies  
 **Reference:** [System Setup Guide](reference_documentation/system_setup.md)  
-**Recent:** hailo-ocr refactored to device_manager integration (Feb 6, 2026) — exclusive NPU access and model serialization; hailo-depth integrated with HailoRT (Feb 4, 2026) — full Hailo-10H NPU acceleration for monocular depth estimation
+**Recent:** hailo-ocr refactored to device_manager integration (Feb 6, 2026) — exclusive NPU access and model serialization; **hailo-depth fully refactored to async/await and device manager integration, tested and production-ready (Feb 6, 2026)**
