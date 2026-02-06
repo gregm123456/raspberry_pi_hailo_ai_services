@@ -631,6 +631,26 @@ sudo systemctl restart service-name
 
 **Fix:** Use bind mounts or config paths pointing to `/usr/share` instead of copying.
 
+### Device Manager Integration Lessons
+
+**Lesson: Device manager socket errors are transient**
+
+**Context:** When integrating services with the device manager, socket connection errors may appear in logs but resolve automatically as services establish connections.
+
+**Action:** No intervention needed; these are normal during startup and connection establishment.
+
+**Lesson: Model file permissions must be accessible by device_manager**
+
+**Context:** Services that download or manage HEF models must ensure the files have permissions allowing the device manager (running as `hailo-device-mgr` user) to read them.
+
+**Action:** For example, for hailo-ocr, we set group permissions to `hailo-device-mgr:hailo-ocr` with 640 permissions (owner read/write, group read, others none). Ensure the service user is in the appropriate group.
+
+**Lesson: Testing practices for device manager services**
+
+**Context:** When testing new services integrated with device manager, avoid cluttering logs and conversations with raw base64 data.
+
+**Action:** Uninstall old service (and its config) first. Test against the running system service. Use file payloads or script base64 encoding instead of inline base64 in curl commands or output.
+
 ### Case Study: XDG Base Directory Spec
 
 **Scenario:** Application uses XDG Base Directory specification but only searches `XDG_DATA_HOME`, not `XDG_DATA_DIRS`.

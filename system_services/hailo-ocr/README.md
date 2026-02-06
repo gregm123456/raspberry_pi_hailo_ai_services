@@ -1,6 +1,6 @@
 # Hailo-10H OCR Service
 
-This service exposes a Hailo-10H accelerated OCR REST API compatible with PaddleOCR-style outputs.
+This service exposes a Hailo-10H accelerated OCR REST API compatible with PaddleOCR-style outputs, integrated with the device_manager for exclusive NPU access.
 
 Quick start
 - Install (run installer in this folder): `sudo bash install.sh`
@@ -9,18 +9,19 @@ Quick start
 
 Notes
 - Server preprocessing: Images are resized with padding (letterbox) to the model input size on the server (preserves aspect ratio). Clients should send the original image (base64 or file); do not pre-resize or stretch images — the server handles aspect-ratio-preserving resizing and maps detection boxes back to original coordinates.
-- Models: HEF models are downloaded to `/var/lib/hailo-ocr/resources/models/hailo10h/` during installation.
+- Models: HEF models are downloaded to `/var/lib/hailo-ocr/resources/models/hailo10h/` during installation and loaded via device_manager.
 
 Where to look for more
 - API spec: `system_services/hailo-ocr/API_SPEC.md`
 - Troubleshooting: `system_services/hailo-ocr/TROUBLESHOOTING.md`
 # Hailo-10H Accelerated OCR Service
 
-Deploys NPU-accelerated OCR (text detection and recognition) as a systemd service on Raspberry Pi 5 with Hailo-10H. Uses two-stage HEF models running on the NPU for high throughput and multi-language support.
+Deploys NPU-accelerated OCR (text detection and recognition) as a systemd service on Raspberry Pi 5 with Hailo-10H, integrated with device_manager for exclusive device access and model serialization.
 
 ## Features
 
-- **NPU Accelerated:** Both detection and recognition stages run on the Hailo-10H NPU.
+- **NPU Accelerated:** Both detection and recognition stages run on the Hailo-10H NPU via device_manager.
+- **Device Manager Integration:** Uses device_manager for exclusive NPU access, model loading, and request serialization.
 - **Async Workflow:** Built on aiohttp and Hailo-10H async inference for non-blocking API performance.
 - **Multi-language Support:** Separate HEF models for English and Chinese, selectable via API.
 - **Isolated Deployment:** Uses a dedicated Python virtual environment and vendored hailo-apps for stability.

@@ -136,3 +136,10 @@ Transform `hailo-ocr` from CPU-based PaddleOCR to a Hailo-10H NPU-accelerated se
 - **Memory budget 3 GB:** Fits Pi 5 with other services
 - **Keep REST API shape:** Backwards compatible
 - **Chinese language conditional:** Install English by default; Chinese optional
+
+---
+
+## Lessons Learned
+1. **Device manager socket errors are transient:** No need to worry about them; they resolve automatically as services connect.
+2. **Model file permissions must be accessible by device_manager:** Ensure downloaded HEF models have permissions allowing the device manager (running as `hailo-device-mgr` user) to read them. Typically, set group permissions to `hailo-device-mgr:hailo-ocr` with 640 permissions.
+3. **Testing practices:** When ready to test the new service, uninstall the old service (and its config) first. Test against the running system service, and do NOT put raw base64 in curl commands or in test output—use file payloads or script the base64 encoding to avoid cluttering logs and conversations.

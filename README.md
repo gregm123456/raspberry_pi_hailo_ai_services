@@ -33,7 +33,7 @@ This project establishes standardized patterns for wrapping Hailo-accelerated AI
 - **hailo-clip** — CLIP image-text embedding model (production-ready)
 - **hailo-ollama** — LLM inference service (Ollama-compatible REST API, production-ready)
 - **hailo-vision** — Qwen VLM (Qwen2-VL-2B-Instruct) vision-language model (production-ready)
-- **hailo-ocr** — Optical character recognition (PaddleOCR, Hailo-10H accelerated, production-ready)
+- **hailo-ocr** — Optical character recognition (PaddleOCR, Hailo-10H accelerated via device_manager, production-ready)
 - **hailo-pose** — Human pose estimation (YOLOv8 keypoints, COCO format, production-ready)
 - **hailo-whisper** — Speech-to-text transcription (Whisper models, OpenAI Whisper API-compatible, production-ready)
 - **hailo-piper** — Text-to-speech synthesis (Piper TTS, CPU-only; production-ready)
@@ -157,4 +157,4 @@ See individual service and submodule LICENSE files for details.
 **Last Updated:** February 2026  
 **Hailo-10H:** Requires kernel driver from Hailo Technologies  
 **Reference:** [System Setup Guide](reference_documentation/system_setup.md)  
-**Recent:** hailo-depth integrated with HailoRT (Feb 4, 2026) — full Hailo-10H NPU acceleration for monocular depth estimation
+**Recent:** hailo-ocr refactored to device_manager integration (Feb 6, 2026) — exclusive NPU access and model serialization; hailo-depth integrated with HailoRT (Feb 4, 2026) — full Hailo-10H NPU acceleration for monocular depth estimation
