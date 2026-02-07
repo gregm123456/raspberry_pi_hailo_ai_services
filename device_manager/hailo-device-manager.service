@@ -36,6 +36,7 @@ NoNewPrivileges=yes
 # Environment
 Environment="PYTHONUNBUFFERED=1"
 Environment="HAILO_DEVICE_SOCKET=/run/hailo/device.sock"
+Environment="HAILO_MONITOR=1"
 EnvironmentFile=-/etc/hailo/device-manager.env
 
 # Runtime directory for socket
