@@ -1,0 +1,26 @@
+[Unit]
+Description=Hailo Web Portal for AI Services
+After=network-online.target hailo-device-manager.service
+Wants=network-online.target
+Requires=hailo-device-manager.service
+
+[Service]
+Type=simple
+User=hailo
+Group=hailo
+WorkingDirectory=/opt/hailo-web-portal
+ExecStart=/opt/hailo-web-portal/venv/bin/python /opt/hailo-web-portal/app.py
+Restart=always
+RestartSec=5
+MemoryMax=200M
+CPUQuota=20%
+
+Environment=PYTHONUNBUFFERED=1
+Environment=HAILO_DEVICE_STATUS_URL=http://127.0.0.1:5099/v1/device/status
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hailo-web-portal
+
+[Install]
+WantedBy=multi-user.target
