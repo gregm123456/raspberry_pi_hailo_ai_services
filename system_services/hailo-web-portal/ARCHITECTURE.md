@@ -41,10 +41,14 @@ Provide a unified, full-featured UI for testing all Hailo AI system services wit
 - Systemd unit starts the portal with `uvicorn` via `app.py`.
 - Device status is polled every 3 seconds to keep the UI current.
 
-## Ollama Conflict Policy
+## Ollama and Device-Manager Incompatibility
 
-- Starting `hailo-ollama` is blocked when other Hailo services are running.
-- The portal does not auto-stop services, it only reports conflicts.
+`hailo-ollama` is **not supported in this portal** because it requires exclusive device ownership, while all other services (vision, clip, whisper, ocr, pose, depth, piper) route through the centralized `device_manager` for serialized device access. These two models are architecturally incompatible:
+
+- **hailo-ollama:** Creates its own VDevice, expects exclusive access to `/dev/hailo0`
+- **device_manager:** Centralizes VDevice ownership, serializes requests from all client services
+
+To test `hailo-ollama`, stop the web portal and device-manager, then run Ollama as a standalone service.
 
 ## Resource Limits
 

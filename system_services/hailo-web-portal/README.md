@@ -2,6 +2,10 @@
 
 Unified Gradio portal for testing and managing Hailo AI system services on Raspberry Pi 5.
 
+**Supported Services:** CLIP, Vision, Whisper, OCR, Pose, Depth, Piper (7 services)
+
+**Note:** `hailo-ollama` is not included in this portal due to architectural incompatibility with the device-manager. See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
+
 ## Prerequisites
 
 - Hailo-10H driver installed: `sudo apt install dkms hailo-h10-all`

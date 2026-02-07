@@ -47,14 +47,17 @@ sudo cat /etc/sudoers.d/hailo-web-portal-systemctl
 1. Re-run installer: `sudo ./install.sh`
 2. Ensure permissions: `sudo chmod 0440 /etc/sudoers.d/hailo-web-portal-systemctl`
 
-## Ollama start blocked
+## Ollama not available in the portal
 
 **Reason:**
-- Other Hailo services are running and Ollama requires exclusive access
+Hailo-Ollama requires exclusive Hailo device access, while the portal and its services use the centralized device-manager for serialized access. These architectures are incompatible.
 
-**Fix:**
-1. Stop other services from the Service Control tab
-2. Start `hailo-ollama` again
+**To test Ollama separately:**
+1. Stop the web portal: `sudo systemctl stop hailo-web-portal`
+2. Stop device-manager: `sudo systemctl stop hailo-device-manager`
+3. Start Ollama: `sudo systemctl start hailo-ollama`
+4. Test via curl: `curl -X POST http://localhost:11434/api/chat ...`
+5. When done, restart the portal and device-manager
 
 ## UI loads but requests fail
 
