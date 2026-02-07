@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import grp
+import http.server
 import json
 import logging
 import logging.handlers
@@ -24,6 +25,7 @@ import os
 import signal
 import struct
 import sys
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -70,7 +72,7 @@ except ImportError:
 
 DEFAULT_SOCKET_PATH = "/run/hailo/device.sock"
 DEFAULT_SOCKET_MODE = 0o660
-DEFAULT_MAX_MESSAGE_BYTES = 8 * 1024 * 1024
+DEFAULT_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -85,6 +87,27 @@ def _get_env_int(name: str, default: int) -> int:
 
 def _get_env_str(name: str, default: str) -> str:
     return os.environ.get(name, default)
+
+
+def _parse_http_bind(value: Optional[str]) -> Optional[tuple[str, int]]:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"0", "off", "false", "none", "disable", "disabled"}:
+        return None
+    if ":" in value:
+        host, port_str = value.rsplit(":", 1)
+        host = host.strip()
+    else:
+        host = "127.0.0.1"
+        port_str = value
+    try:
+        port = int(port_str)
+    except ValueError:
+        return None
+    if not host:
+        host = "127.0.0.1"
+    return host, port
 
 
 async def _read_exact(reader: asyncio.StreamReader, size: int) -> Optional[bytes]:
@@ -587,6 +610,9 @@ class HailoDeviceManager:
         self.vdevice: Optional[hailo_platform.VDevice] = None
         self.loaded_models: Dict[str, ModelEntry] = {}
         self.start_time = time.time()
+        self.http_bind = _parse_http_bind(
+            os.environ.get("HAILO_DEVICE_HTTP_BIND", "127.0.0.1:5099")
+        )
         self.max_message_bytes = _get_env_int(
             "HAILO_DEVICE_MAX_MESSAGE_BYTES", DEFAULT_MAX_MESSAGE_BYTES
         )
@@ -595,6 +621,8 @@ class HailoDeviceManager:
         )
         self.socket_group = os.environ.get("HAILO_DEVICE_SOCKET_GROUP")
         self._server: Optional[asyncio.AbstractServer] = None
+        self._http_server: Optional[http.server.ThreadingHTTPServer] = None
+        self._http_thread: Optional[threading.Thread] = None
         self._executor = ThreadPoolExecutor(max_workers=1)
         self._request_queue: asyncio.Queue = asyncio.Queue()
         self._worker_task: Optional[asyncio.Task] = None
@@ -734,6 +762,8 @@ class HailoDeviceManager:
             return self._status_payload(include_models=True)
         if action == "status":
             return self._status_payload(include_models=True)
+        if action == "device_status":
+            return self._device_status_payload()
         if action == "load_model":
             return self._load_model(request)
         if action == "infer":
@@ -763,6 +793,111 @@ class HailoDeviceManager:
             "socket_path": self.socket_path,
             "queue_depth": self._queue_depth,
         }
+
+    def _device_status_payload(self) -> Dict[str, Any]:
+        if not self.device:
+            return {"status": "error", "message": "Device not initialized"}
+
+        device_info: Dict[str, Any] = {"device_id": self.device.device_id}
+        try:
+            board_info = self.device.control.identify()
+            device_info.update(
+                {
+                    "architecture": str(board_info.device_architecture),
+                    "fw_version": str(board_info.firmware_version),
+                }
+            )
+        except Exception as e:
+            device_info["identify_error"] = str(e)
+
+        try:
+            temp_info = self.device.control.get_chip_temperature()
+            device_info["temperature_celsius"] = round(temp_info.ts0_temperature, 1)
+        except Exception as e:
+            device_info["temperature_celsius"] = None
+            device_info["temperature_error"] = str(e)
+
+        networks: Dict[str, Any] = {
+            "status": "ok",
+            "source": "device_manager",
+            "network_count": len(self.loaded_models),
+            "networks": [],
+        }
+        for entry in self.loaded_models.values():
+            networks["networks"].append(
+                {
+                    "name": Path(entry.model_path).name,
+                    "model_type": entry.model_type,
+                    "model_path": entry.model_path,
+                    "loaded_at": entry.loaded_at,
+                    "last_used": entry.last_used,
+                }
+            )
+
+        return {
+            "status": "ok",
+            "device": device_info,
+            "networks": networks,
+            "uptime_seconds": time.time() - self.start_time,
+            "queue_depth": self._queue_depth,
+        }
+
+    def _start_http_server(self) -> None:
+        if not self.http_bind:
+            return
+
+        host, port = self.http_bind
+        manager = self
+
+        class StatusHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                if self.path != "/v1/device/status":
+                    self.send_response(404)
+                    self.send_header("Content-Type", "application/json")
+                    body = json.dumps({"error": "Not found"}).encode("utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                payload = manager._device_status_payload()
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, format: str, *args: Any) -> None:
+                logger.info("HTTP %s - %s", self.address_string(), format % args)
+
+        try:
+            self._http_server = http.server.ThreadingHTTPServer((host, port), StatusHandler)
+        except OSError as exc:
+            logger.error("Failed to start HTTP server on %s:%s: %s", host, port, exc)
+            self._http_server = None
+            return
+
+        self._http_thread = threading.Thread(
+            target=self._http_server.serve_forever,
+            name="hailo-device-http",
+            daemon=True,
+        )
+        self._http_thread.start()
+        logger.info("HTTP status endpoint: http://%s:%s/v1/device/status", host, port)
+
+    def _stop_http_server(self) -> None:
+        if not self._http_server:
+            return
+        try:
+            self._http_server.shutdown()
+            self._http_server.server_close()
+        except Exception as exc:
+            logger.warning("Error stopping HTTP server: %s", exc)
+        self._http_server = None
+        if self._http_thread:
+            self._http_thread.join(timeout=1.0)
+            self._http_thread = None
 
     def _get_handler(self, model_type: str) -> ModelHandler:
         handler = self._handlers.get(model_type)
@@ -892,6 +1027,8 @@ class HailoDeviceManager:
             os.chown(self.socket_path, -1, socket_gid)
         os.chmod(self.socket_path, self.socket_mode)
 
+        self._start_http_server()
+
         self._worker_task = asyncio.create_task(self._worker_loop())
         logger.info("Device manager ready for connections")
 
@@ -900,6 +1037,8 @@ class HailoDeviceManager:
 
     async def shutdown(self) -> None:
         logger.info("Shutting down...")
+
+        self._stop_http_server()
 
         if self._server:
             self._server.close()

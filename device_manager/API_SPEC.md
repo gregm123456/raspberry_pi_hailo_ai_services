@@ -6,6 +6,9 @@ Authentication: none (local socket permissions control access).
 
 Protocol: length-prefixed JSON messages over a Unix socket. Each request and response is a single JSON object.
 
+Optional HTTP endpoint (if enabled via `HAILO_DEVICE_HTTP_BIND`, default `127.0.0.1:5099`):
+- `GET /v1/device/status` returns the same payload as the `device_status` action.
+
 ## Request Envelope
 
 All requests are JSON objects with an `action` field.
@@ -101,6 +104,47 @@ Response (200 OK):
   "queue_depth": 1,
   "request_id": "..."
 }
+
+### device_status
+Get detailed device status (firmware, temperature, loaded networks).
+
+Request:
+```json
+{
+  "action": "device_status",
+  "request_id": "..."
+}
+```
+
+Response (200 OK):
+```json
+{
+  "status": "ok",
+  "device": {
+    "device_id": "0001:01:00.0",
+    "architecture": "HAILO10H",
+    "fw_version": "5.1.1 (release,app)",
+    "temperature_celsius": 53.5
+  },
+  "networks": {
+    "status": "ok",
+    "source": "device_manager",
+    "network_count": 1,
+    "networks": [
+      {
+        "name": "yolov8n.hef",
+        "model_type": "vision",
+        "model_path": "/path/to/yolov8n.hef",
+        "loaded_at": 1700000000.0,
+        "last_used": 1700000001.5
+      }
+    ]
+  },
+  "uptime_seconds": 123.4,
+  "queue_depth": 0,
+  "request_id": "..."
+}
+```
 ```
 
 ### load_model

@@ -1,0 +1,2 @@
+click==8.1.7
+hailo-platform==5.5.1

@@ -174,6 +174,10 @@ class HailoDeviceClient:
     async def status(self) -> Dict[str, Any]:
         """Get device manager status."""
         return await self._send_request({"action": "status"})
+
+    async def device_status(self) -> Dict[str, Any]:
+        """Get device status info from the device manager."""
+        return await self._send_request({"action": "device_status"})
     
     async def load_model(
         self,

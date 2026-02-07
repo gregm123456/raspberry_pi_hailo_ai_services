@@ -39,6 +39,7 @@ This plan resolves port conflicts among Hailo AI system services to enable simul
 - **5001:** hailo-scrfd (frozen)
 - **5002:** hailo-face (frozen)
 - **5003:** hailo-piper
+- **5099:** hailo-device-manager (infrastructure HTTP status endpoint)
 - **11434:** hailo-ollama
 - **11435:** hailo-vision
 - **11436:** hailo-ocr
@@ -46,6 +47,8 @@ This plan resolves port conflicts among Hailo AI system services to enable simul
 - **11438:** hailo-florence
 - **11439:** hailo-depth
 - **11440:** hailo-pose
+
+**Note:** hailo-device-manager also provides Unix socket API at `/run/hailo/device.sock` (primary interface).
 
 ## Implementation Steps
 
@@ -160,6 +163,7 @@ systemctl status hailo-piper hailo-depth hailo-pose hailo-ocr
 
 | Service | Port | Base URL | Status |
 |---------|------|----------|--------|
+| hailo-device-manager | 5099 | http://localhost:5099 | Infrastructure |
 | hailo-ollama | 11434 | http://localhost:11434 | Priority |
 | hailo-piper | 5002 → 5003 | http://localhost:5003 | Change |
 | hailo-whisper | 11437 | http://localhost:11437 | No change |

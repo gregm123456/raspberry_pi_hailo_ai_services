@@ -213,7 +213,12 @@ class VisionService:
             logger.info(f"Using HEF model: {self.hef_path}")
             
             logger.info("Connecting to device manager...")
-            self.client = HailoDeviceClient()
+            timeout_env = os.environ.get("HAILO_DEVICE_TIMEOUT", "120")
+            try:
+                device_timeout = float(timeout_env)
+            except ValueError:
+                device_timeout = 120.0
+            self.client = HailoDeviceClient(timeout=device_timeout)
             await self.client.connect()
 
             logger.info("Loading VLM model via device manager...")
