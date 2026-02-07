@@ -12,6 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
 from device_status_monitor import DeviceStatusMonitor
+from status_formatters import (
+    format_device_header,
+    format_networks_table,
+    create_temperature_gauge_html,
+    create_queue_gauge_html,
+)
 from portal_client import (
     HailoClipClient,
     HailoDepthClient,
@@ -65,22 +71,76 @@ async def restart_service(service_name: str) -> Dict[str, str]:
 
 
 def build_gradio_interface() -> gr.Blocks:
-    with gr.Blocks(title="Hailo AI Services Portal", theme=gr.themes.Soft()) as demo:
-        gr.Markdown("# Hailo AI Services Portal")
-        gr.Markdown(
-            "Comprehensive testing interface for Hailo-10H AI services on Raspberry Pi 5."
+    with gr.Blocks(
+        title="Hailo AI Services Portal",
+        theme=gr.themes.Soft(),
+        css=(
+            ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
+            ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
         )
-
+    ) as demo:
+        gr.Markdown("# Hailo AI Services Portal")
         with gr.Row():
-            status_display = gr.JSON(label="Device Status", value=monitor.get_status())
-            refresh_status_btn = gr.Button("Refresh Status", size="sm")
+            with gr.Column(scale=0, min_width=40):
+                refresh_status_btn = gr.Button(
+                    "🔄", size="sm", elem_classes=["icon-button"]
+                )
+            with gr.Column(scale=1):
+                device_info_md = gr.Markdown(
+                    "Comprehensive testing interface for Hailo-10H AI services on Raspberry Pi 5."
+                )
 
-        def update_status() -> Dict[str, Any]:
-            return monitor.get_status()
+        # Temperature + Queue Gauges
+        with gr.Row():
+            with gr.Column(scale=0, min_width=200):
+                temp_gauge = gr.HTML(label="Temperature")
+            with gr.Column(scale=0, min_width=200):
+                queue_info = gr.HTML(label="Queue")
+            with gr.Column(scale=1):
+                gr.HTML("")
 
-        refresh_status_btn.click(fn=update_status, outputs=[status_display])
-        gr.Timer(3.0).tick(fn=update_status, outputs=[status_display])
-        demo.load(fn=update_status, outputs=[status_display])
+        # Networks Table
+        with gr.Accordion("Loaded Networks", open=True):
+            networks_table = gr.Dataframe(
+                headers=["Model Name", "Type", "Loaded At", "Last Used"],
+                label=None,
+                interactive=False,
+                wrap=True,
+            )
+
+        def update_status() -> tuple:
+            status_data = monitor.get_status()
+            
+            # Format device info for subtitle
+            device_header = format_device_header(status_data)
+            subtitle_text = (
+                f"Comprehensive testing interface for Hailo-10H AI services on Raspberry Pi 5.  \n"
+                f"**{device_header}**"
+            )
+            
+            device = status_data.get("device", {})
+            temp_c = device.get("temperature_celsius", 0)
+            temp_gauge_html = create_temperature_gauge_html(temp_c)
+            
+            networks = format_networks_table(status_data)
+            
+            queue_depth = status_data.get("queue_depth", 0)
+            queue_gauge_html = create_queue_gauge_html(queue_depth)
+            
+            return (subtitle_text, temp_gauge_html, networks, queue_gauge_html)
+
+        refresh_status_btn.click(
+            fn=update_status,
+            outputs=[device_info_md, temp_gauge, networks_table, queue_info],
+        )
+        gr.Timer(3.0).tick(
+            fn=update_status,
+            outputs=[device_info_md, temp_gauge, networks_table, queue_info],
+        )
+        demo.load(
+            fn=update_status,
+            outputs=[device_info_md, temp_gauge, networks_table, queue_info],
+        )
 
         with gr.Tabs():
             with gr.TabItem("CLIP"):

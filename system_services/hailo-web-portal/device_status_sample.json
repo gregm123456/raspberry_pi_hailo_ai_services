@@ -1,0 +1,53 @@
+{
+  "status": "ok",
+  "device": {
+    "device_id": "0001:01:00.0",
+    "architecture": "HAILO10H",
+    "fw_version": "5.1.1 (release,app)",
+    "temperature_celsius": 51.3
+  },
+  "networks": {
+    "status": "ok",
+    "source": "device_manager",
+    "network_count": 5,
+    "networks": [
+      {
+        "name": "Whisper-Base.hef",
+        "model_type": "whisper",
+        "model_path": "/var/lib/hailo-whisper/resources/models/hailo10h/Whisper-Base.hef",
+        "loaded_at": 1770479387.671931,
+        "last_used": 1770479387.671931
+      },
+      {
+        "name": "Qwen2-VL-2B-Instruct.hef",
+        "model_type": "vlm_chat",
+        "model_path": "/var/lib/hailo-vision/resources/models/hailo10h/Qwen2-VL-2B-Instruct.hef",
+        "loaded_at": 1770479422.8365798,
+        "last_used": 1770479422.8365798
+      },
+      {
+        "name": "ocr_det.hef",
+        "model_type": "ocr",
+        "model_path": "/var/lib/hailo-ocr/resources/models/hailo10h/ocr_det.hef",
+        "loaded_at": 1770479423.4895961,
+        "last_used": 1770479423.4895961
+      },
+      {
+        "name": "scdepthv3.hef",
+        "model_type": "depth",
+        "model_path": "/var/lib/hailo-depth/resources/models/scdepthv3.hef",
+        "loaded_at": 1770479423.808467,
+        "last_used": 1770479423.808467
+      },
+      {
+        "name": "clip_vit_b_32_image_encoder.hef",
+        "model_type": "clip",
+        "model_path": "/usr/local/hailo/resources/models/hailo10h/clip_vit_b_32_image_encoder.hef",
+        "loaded_at": 1770479426.8453705,
+        "last_used": 1770479767.0134218
+      }
+    ]
+  },
+  "uptime_seconds": 578.0739915370941,
+  "queue_depth": 0
+}
