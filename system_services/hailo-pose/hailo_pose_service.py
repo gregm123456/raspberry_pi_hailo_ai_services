@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -22,13 +22,19 @@ except ImportError as e:
     print("Install with: pip3 install aiohttp pillow numpy")
     sys.exit(1)
 
+try:
+    from device_client import HailoDeviceClient
+except ImportError as e:
+    print(f"Error: device client not found: {e}")
+    print("Ensure device_client.py is available alongside hailo_pose_service.py")
+    sys.exit(1)
+
 # Add vendored hailo-apps to path if present
 VENDOR_DIR = Path("/opt/hailo-pose/vendor/hailo-apps")
 if VENDOR_DIR.exists():
     sys.path.insert(0, str(VENDOR_DIR))
 
 try:
-    from hailo_apps.python.core.common.hailo_inference import HailoInfer
     from hailo_apps.python.core.common.core import resolve_hef_path
     from hailo_apps.python.core.common.defines import (
         HAILO10H_ARCH,
@@ -69,6 +75,30 @@ COCO_SKELETON = [
     [6, 8], [7, 9], [8, 10], [9, 11],  # arms
     [2, 3], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7]  # head
 ]
+
+
+def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
+    """Encode numpy array to base64 for transmission to device manager."""
+    return {
+        "dtype": str(array.dtype),
+        "shape": list(array.shape),
+        "data_b64": base64.b64encode(array.tobytes()).decode("ascii"),
+    }
+
+
+def decode_tensor(payload: Dict[str, Any]) -> np.ndarray:
+    """Decode tensor from device manager response."""
+    dtype = payload.get("dtype")
+    shape = payload.get("shape")
+    data_b64 = payload.get("data_b64")
+
+    if not dtype or shape is None or not data_b64:
+        raise ValueError("tensor must include dtype, shape, and data_b64")
+
+    raw = base64.b64decode(data_b64)
+    array = np.frombuffer(raw, dtype=np.dtype(dtype))
+    return array.reshape(shape).copy()
+
 
 class PoseServiceConfig:
     """Configuration management."""
@@ -131,37 +161,55 @@ class PoseService:
 
     def __init__(self, config: PoseServiceConfig):
         self.config = config
-        self.infer = None
+        self.client: Optional[HailoDeviceClient] = None
+        self.hef_path = None
         self.is_loaded = False
         self.load_time_ms = 0
-        self.startup_time = datetime.utcnow()
+        self.startup_time = datetime.now(timezone.utc)
         self.model_input_shape = None
-        self.infer_lock = asyncio.Lock()
 
     async def initialize(self):
         """Initialize model and prepare for inference."""
         logger.info(f"Initializing model: {self.config.model_name}")
 
         try:
-            hef_path = resolve_hef_path(
+            self.hef_path = resolve_hef_path(
                 hef_path=self.config.model_name,
                 app_name=POSE_ESTIMATION_PIPELINE,
                 arch=HAILO10H_ARCH,
             )
 
-            if hef_path is None:
+            if self.hef_path is None:
                 raise RuntimeError("Failed to resolve HEF model path")
 
-            logger.info(f"Using HEF: {hef_path}")
+            logger.info(f"Using HEF: {self.hef_path}")
 
+            logger.info("Connecting to device manager...")
+            timeout_env = os.environ.get("HAILO_DEVICE_TIMEOUT", "120")
+            try:
+                device_timeout = float(timeout_env)
+            except ValueError:
+                device_timeout = 120.0
+            self.client = HailoDeviceClient(timeout=device_timeout)
+            await self.client.connect()
+
+            logger.info("Loading pose model via device manager...")
             start = time.time()
-            self.infer = HailoInfer(str(hef_path), batch_size=1, output_type="FLOAT32")
-            self.model_input_shape = self.infer.get_input_shape()
+            await self.client.load_model(str(self.hef_path), model_type="pose")
+            # Standard YOLOv8 pose input size
+            self.model_input_shape = (640, 640, 3)
             self.load_time_ms = int((time.time() - start) * 1000)
             self.is_loaded = True
-            logger.info(f"Model loaded in {self.load_time_ms} ms")
+            logger.info(f"Pose model loaded successfully in {self.load_time_ms} ms")
+            
         except Exception as e:
             logger.error(f"Model initialization failed: {e}")
+            # Cleanup on failure
+            if self.client:
+                try:
+                    await self.client.disconnect()
+                except Exception:
+                    pass
             raise
 
     def _build_post_processor(
@@ -178,27 +226,6 @@ class PoseService:
             strides=[8, 16, 32],
         )
 
-    async def _run_inference(self, input_tensor: np.ndarray) -> Dict[str, np.ndarray]:
-        loop = asyncio.get_running_loop()
-        future = loop.create_future()
-
-        def callback(completion_info, bindings_list):
-            if completion_info.exception:
-                loop.call_soon_threadsafe(future.set_exception, completion_info.exception)
-                return
-
-            bindings = bindings_list[0]
-            if len(bindings._output_names) == 1:
-                result = bindings.output().get_buffer()
-            else:
-                result = {
-                    name: np.expand_dims(bindings.output(name).get_buffer(), axis=0)
-                    for name in bindings._output_names
-                }
-            loop.call_soon_threadsafe(future.set_result, result)
-
-        self.infer.run([input_tensor], callback)
-        return await future
 
     async def detect_poses(
         self,
@@ -210,7 +237,7 @@ class PoseService:
     ) -> Dict[str, Any]:
         """Detect human poses in image."""
 
-        if not self.is_loaded or not self.infer:
+        if not self.is_loaded or not self.client:
             raise RuntimeError("Model not loaded")
 
         confidence_threshold = (
@@ -234,9 +261,36 @@ class PoseService:
         preprocessed = default_preprocess(image_np, model_w, model_h)
 
         start = time.time()
-        async with self.infer_lock:
-            raw = await self._run_inference(preprocessed)
+        response = await self.client.infer(
+            str(self.hef_path),
+            {"input": encode_tensor(preprocessed)},
+            model_type="pose",
+        )
         inference_time_ms = int((time.time() - start) * 1000)
+
+        # Decode the raw output
+        raw = response.get("result")
+        logger.debug(f"Raw response type: {type(raw)}")
+        if isinstance(raw, dict):
+            if "dtype" in raw:
+                logger.debug(f"Single tensor with shape from dtype: {raw.get('shape')}")
+            else:
+                logger.debug(f"Multiple tensors: {list(raw.keys())}")
+                for name, tensor in raw.items():
+                    logger.debug(f"  {name}: shape={tensor.get('shape') if isinstance(tensor, dict) else 'unknown'}")
+        
+        if isinstance(raw, dict) and "dtype" in raw:
+            # Single output tensor
+            raw = decode_tensor(raw)
+            logger.debug(f"Decoded single tensor, shape: {raw.shape}")
+        elif isinstance(raw, dict):
+            # Multiple output tensors - decode and add batch dimension
+            raw = {}
+            for name, tensor in response.get("result").items():
+                decoded = decode_tensor(tensor)
+                # Add batch dimension (expand to [1, H, W, C] from [H, W, C])
+                raw[name] = np.expand_dims(decoded, axis=0)
+            logger.debug(f"Decoded multiple tensors with batch dim: {[(name, arr.shape) for name, arr in raw.items()]}")
 
         post_processor = self._build_post_processor(
             confidence_threshold=confidence_threshold,
@@ -322,11 +376,18 @@ class PoseService:
 
     async def shutdown(self):
         """Unload model and clean up resources."""
-        if self.infer:
+        if self.client:
             logger.info("Unloading model")
-            self.infer.close()
-            self.infer = None
-            self.is_loaded = False
+            try:
+                await self.client.unload_model(str(self.hef_path), model_type="pose")
+            except Exception as e:
+                logger.warning(f"Error unloading model: {e}")
+            try:
+                await self.client.disconnect()
+            except Exception as e:
+                logger.warning(f"Error disconnecting client: {e}")
+            self.client = None
+        self.is_loaded = False
 
 class APIHandler:
     """HTTP API request handlers."""
@@ -340,7 +401,7 @@ class APIHandler:
             "status": "ok",
             "model": self.service.config.model_name,
             "model_loaded": self.service.is_loaded,
-            "uptime_seconds": (datetime.utcnow() - self.service.startup_time).total_seconds()
+              "uptime_seconds": (datetime.now(datetime.UTC if hasattr(datetime, 'UTC') else timezone.utc) - self.service.startup_time).total_seconds()
         })
     
     async def health_ready(self, request: web.Request) -> web.Response:
@@ -360,7 +421,7 @@ class APIHandler:
                 {
                     "id": self.service.config.model_name,
                     "object": "model",
-                    "created": int(self.service.startup_time.timestamp()),
+                        "created": int(self.service.startup_time.timestamp()) if hasattr(self.service.startup_time, 'timestamp') else int(time.time()),
                     "owned_by": "hailo",
                     "task": "pose-estimation"
                 }

@@ -25,6 +25,7 @@ RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 DEFAULT_PORT="11440"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_pose_service.py"
 REQUIREMENTS_SRC="${SCRIPT_DIR}/requirements.txt"
+DEVICE_CLIENT_SRC="${SCRIPT_DIR}/device_client.py"
 
 WARMUP_MODEL=""
 
@@ -124,6 +125,11 @@ configure_device_permissions() {
 
     log "Adding ${SERVICE_USER} to ${device_group} group"
     usermod -aG "${device_group}" "${SERVICE_USER}"
+
+    if getent group hailo-device-mgr >/dev/null 2>&1; then
+        log "Adding ${SERVICE_USER} to hailo-device-mgr group for device manager access"
+        usermod -aG hailo-device-mgr "${SERVICE_USER}"
+    fi
 }
 
 create_state_directories() {
@@ -135,7 +141,13 @@ create_state_directories() {
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${DATA_DIR}"
     chmod -R u+rwX,g+rX,o-rwx "${DATA_DIR}"
 
+    if getent group hailo-device-mgr >/dev/null 2>&1; then
+        chgrp -R hailo-device-mgr "${RESOURCES_DIR}"
+        chmod -R g+rX "${RESOURCES_DIR}"
+    fi
+
     cp "${SERVER_SCRIPT}" "${SERVICE_DIR}/"
+    cp "${DEVICE_CLIENT_SRC}" "${SERVICE_DIR}/"
     cp "${RENDER_SCRIPT}" "${SERVICE_DIR}/"
     cp "${REQUIREMENTS_SRC}" "${SERVICE_DIR}/"
 
@@ -272,6 +284,10 @@ ensure_model_downloaded() {
         --no-parallel
 
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${RESOURCES_DIR}"
+    if getent group hailo-device-mgr >/dev/null 2>&1; then
+        chgrp -R hailo-device-mgr "${RESOURCES_DIR}"
+        chmod -R g+rX "${RESOURCES_DIR}"
+    fi
 }
 
 install_unit() {

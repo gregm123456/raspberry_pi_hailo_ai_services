@@ -580,6 +580,105 @@ class DepthHandler(ModelHandler):
                 obj.release()
 
 
+@dataclass
+class PoseRuntime:
+    """Runtime state for pose estimation model."""
+    infer_model: Any
+    configured_model: Any
+    input_shape: tuple
+    output_names: list
+
+
+class PoseHandler(ModelHandler):
+    model_type = "pose"
+
+    def load(
+        self, vdevice: hailo_platform.VDevice, model_path: str, model_params: Dict[str, Any]
+    ) -> Any:
+        """Load a pose estimation model (e.g., YOLOv8 pose)."""
+        if not Path(model_path).exists():
+            raise ValueError(f"Model HEF not found: {model_path}")
+
+        logger.info("Loading pose model: %s", model_path)
+        infer_model = vdevice.create_infer_model(str(model_path))
+        infer_model.input().set_format_type(FormatType.UINT8)
+
+        # Set all outputs to FLOAT32
+        output_names = []
+        outputs_attr = getattr(infer_model, "outputs", None)
+        outputs_iter = None
+        if callable(outputs_attr):
+            outputs_iter = outputs_attr()
+        elif isinstance(outputs_attr, (list, tuple)):
+            outputs_iter = outputs_attr
+
+        if outputs_iter is not None:
+            for output in outputs_iter:
+                output.set_format_type(FormatType.FLOAT32)
+                output_names.append(output.name)
+        elif hasattr(infer_model, "output_names"):
+            for name in infer_model.output_names:
+                output = infer_model.output(name)
+                output.set_format_type(FormatType.FLOAT32)
+                output_names.append(name)
+        else:
+            output = infer_model.output()
+            output.set_format_type(FormatType.FLOAT32)
+            output_names.append(output.name if hasattr(output, "name") else "output")
+
+        configured_model = infer_model.configure()
+        input_shape = tuple(infer_model.input().shape)
+
+        return PoseRuntime(
+            infer_model=infer_model,
+            configured_model=configured_model,
+            input_shape=input_shape,
+            output_names=output_names,
+        )
+
+    def infer(self, model: PoseRuntime, input_data: Any) -> Any:
+        """Run pose estimation inference and return raw outputs."""
+        input_tensor = decode_tensor(input_data.get("input"))
+
+        bindings = model.configured_model.create_bindings()
+
+        # Set input buffer
+        input_buffer = np.empty(model.infer_model.input().shape, dtype=np.uint8)
+        input_buffer[:] = input_tensor
+        bindings.input().set_buffer(input_buffer)
+
+        # Set output buffers
+        output_buffers = {}
+        if len(model.output_names) == 1:
+            # Single output
+            output_buffer = np.empty(model.infer_model.output().shape, dtype=np.float32)
+            bindings.output().set_buffer(output_buffer)
+            output_buffers["output"] = output_buffer
+        else:
+            # Multiple outputs
+            for output_name in model.output_names:
+                output = model.infer_model.output(output_name)
+                output_buffer = np.empty(output.shape, dtype=np.float32)
+                bindings.output(output_name).set_buffer(output_buffer)
+                output_buffers[output_name] = output_buffer
+
+        # Run inference
+        model.configured_model.wait_for_async_ready(timeout_ms=1000)
+        job = model.configured_model.run_async([bindings])
+        job.wait(timeout_ms=1000)
+
+        # Encode and return outputs
+        if len(output_buffers) == 1:
+            return encode_tensor(list(output_buffers.values())[0].copy())
+        return {name: encode_tensor(buf.copy()) for name, buf in output_buffers.items()}
+
+    def unload(self, model: PoseRuntime) -> None:
+        """Release pose model resources."""
+        for obj in (model.configured_model, model.infer_model):
+            if hasattr(obj, "release"):
+                obj.release()
+
+
 def encode_tensor(array: np.ndarray) -> Dict[str, Any]:
     return {
         "dtype": str(array.dtype),
@@ -633,6 +732,7 @@ class HailoDeviceManager:
             WhisperHandler.model_type: WhisperHandler(),
             OcrHandler.model_type: OcrHandler(),
             DepthHandler.model_type: DepthHandler(),
+                PoseHandler.model_type: PoseHandler(),
         }
         self._queue_depth = 0
 
