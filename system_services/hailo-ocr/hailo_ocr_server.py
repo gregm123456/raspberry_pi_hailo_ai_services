@@ -201,6 +201,12 @@ class HailoOCRService:
         """Run detection via device manager and return crops and boxes."""
         h, w, _ = self.detection_input_shape
         processed = resize_with_padding(image_np, target_height=h, target_width=w)
+
+        model_params = {
+            "detection_hef_path": self.detection_model_path,
+            "recognition_hefs": self.recognition_model_paths,
+            "batch_sizes": self.batch_sizes,
+        }
         
         # Run inference via device manager
         response = await self.client.infer(
@@ -210,6 +216,7 @@ class HailoOCRService:
                 "image": encode_tensor(processed),
             },
             model_type="ocr",
+            model_params=model_params,
         )
         
         # Decode result
@@ -234,6 +241,12 @@ class HailoOCRService:
         
         # Encode crops for device manager
         encoded_crops = [encode_tensor(crop) for crop in resized_crops]
+
+        model_params = {
+            "detection_hef_path": self.detection_model_path,
+            "recognition_hefs": self.recognition_model_paths,
+            "batch_sizes": self.batch_sizes,
+        }
         
         # Run recognition via device manager (batching handled internally)
         response = await self.client.infer(
@@ -245,6 +258,7 @@ class HailoOCRService:
                 "batch_size": batch_size,
             },
             model_type="ocr",
+            model_params=model_params,
         )
         
         # Decode batch results
