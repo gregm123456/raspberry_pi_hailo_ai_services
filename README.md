@@ -150,7 +150,13 @@ This project welcomes contributions, improvements, and refinements. If you exten
 
 ## License
 
-See individual service and submodule LICENSE files for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+The project includes several git submodules, each with their own open-source licenses:
+- **hailo-apps**, **hailo-rpi5-examples**, **hailo_model_zoo**, **hailo_model_zoo_genai** — MIT License
+- **hailort** — MIT License (libhailort, pyhailort, hailortcli) and LGPL 2.1 (hailonet)
+
+See the individual LICENSE files in each submodule directory for complete details.
 
 ---
 
