@@ -225,11 +225,11 @@ This repository includes several official Hailo repositories as submodules:
 
 | Submodule | Purpose | License |
 |-----------|---------|---------|
-| [**hailo-apps**](https://github.com/hailo-ai/hailo-apps-infra) | Application infrastructure and examples | [MIT](hailo-apps/LICENSE) |
-| [**hailo-rpi5-examples**](https://github.com/hailo-ai/hailo-rpi5-examples) | Raspberry Pi 5 specific examples | [MIT](hailo-rpi5-examples/LICENSE) |
-| [**hailo_model_zoo**](https://github.com/hailo-ai/hailo_model_zoo) | Pre-trained models and compilation tools | [MIT](hailo_model_zoo/LICENSE) |
-| [**hailo_model_zoo_genai**](https://github.com/hailo-ai/hailo_model_zoo_genai) | Generative AI models | [MIT](hailo_model_zoo_genai/LICENSE) |
-| [**hailort**](https://github.com/hailo-ai/hailort) | Runtime libraries and tools | [MIT + LGPL 2.1](hailort/README.md) |
+| [**hailo-apps**](https://github.com/hailo-ai/hailo-apps-infra) | Application infrastructure and examples | [MIT](https://github.com/hailo-ai/hailo-apps/blob/095deb51bd723793a2d380c56f55986a8fd81478/LICENSE) |
+| [**hailo-rpi5-examples**](https://github.com/hailo-ai/hailo-rpi5-examples) | Raspberry Pi 5 specific examples | [MIT](https://github.com/hailo-ai/hailo-rpi5-examples/blob/f53c003197a502fcca4f60bfb8766166d4905171/LICENSE) |
+| [**hailo_model_zoo**](https://github.com/hailo-ai/hailo_model_zoo) | Pre-trained models and compilation tools | [MIT](https://github.com/hailo-ai/hailo_model_zoo/blob/c83fc030e862de8daf05b783f503712d168ef620/LICENSE) |
+| [**hailo_model_zoo_genai**](https://github.com/hailo-ai/hailo_model_zoo_genai) | Generative AI models | [MIT](https://github.com/hailo-ai/hailo_model_zoo_genai/blob/8eb58a6ff6719fee9528c4e057b800438f2405cd/LICENSE) |
+| [**hailort**](https://github.com/hailo-ai/hailort) | Runtime libraries and tools | [MIT + LGPL 2.1](https://github.com/hailo-ai/hailort/blob/41a720b9fedb56a4ee9ea39506afecf3f9ace2eb/README.md#licenses) |
 
 **Note:** The submodules are included for reference and building custom services. Most users can install pre-built packages via `apt install hailo-all`.
 
