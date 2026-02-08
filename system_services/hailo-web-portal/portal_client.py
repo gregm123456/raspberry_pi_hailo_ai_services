@@ -29,6 +29,44 @@ def _guess_mime(path: str, default_mime: str) -> str:
     return mime or default_mime
 
 
+def _safe_filename(path: str) -> str:
+    """Convert filename to ASCII-safe version for multipart form data.
+    
+    Args:
+        path: File path with potentially Unicode filename
+        
+    Returns:
+        ASCII-safe filename with extension preserved
+    """
+    original = Path(path).name
+    suffix = Path(path).suffix.lower()
+    
+    # Try to create ASCII-only version by removing non-ASCII chars
+    safe_name = original.encode('ascii', 'ignore').decode('ascii')
+    
+    # If nothing left after ASCII conversion, use generic name
+    if not safe_name or safe_name == suffix:
+        # Generate generic name based on file type
+        base_names = {
+            '.jpg': 'image',
+            '.jpeg': 'image',
+            '.png': 'image',
+            '.gif': 'image',
+            '.webp': 'image',
+            '.wav': 'audio',
+            '.mp3': 'audio',
+            '.m4a': 'audio',
+            '.flac': 'audio',
+        }
+        base = base_names.get(suffix, 'file')
+        return f"{base}{suffix}"
+    
+    # Replace spaces and problematic chars with underscores
+    safe_name = safe_name.replace(' ', '_').replace('(', '').replace(')', '')
+    
+    return safe_name
+
+
 async def _request_json(
     method: str,
     url: str,
@@ -183,7 +221,7 @@ class HailoWhisperClient:
         form_data.add_field(
             "file",
             audio_bytes,
-            filename=Path(audio_path).name,
+            filename=_safe_filename(audio_path),
             content_type=_guess_mime(audio_path, "audio/mpeg"),
         )
         form_data.add_field("model", "Whisper-Base")
@@ -246,7 +284,7 @@ class HailoPoseClient:
         form_data.add_field(
             "image",
             image_bytes,
-            filename=Path(image_path).name,
+            filename=_safe_filename(image_path),
             content_type=_guess_mime(image_path, "image/jpeg"),
         )
         form_data.add_field("confidence_threshold", str(confidence_threshold))
@@ -281,7 +319,7 @@ class HailoDepthClient:
         form_data.add_field(
             "image",
             image_bytes,
-            filename=Path(image_path).name,
+            filename=_safe_filename(image_path),
             content_type=_guess_mime(image_path, "image/jpeg"),
         )
         form_data.add_field("output_format", output_format)
