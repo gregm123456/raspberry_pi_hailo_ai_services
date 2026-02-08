@@ -241,7 +241,7 @@ This repository includes several official Hailo repositories as submodules:
 
 ## Related Projects
 
-This tooling supports interactive art installations like:
+This tooling was created in the spirit of supporting interactive art installations like this previous project of mine:
 - [**Coyote Interactive**](https://github.com/gregm123456/coyote_interactive) — Multi-modal AI art installation ([YouTube demo](https://www.youtube.com/watch?v=pncuq-U_tuU))
 
 ## Documentation
@@ -249,8 +249,6 @@ This tooling supports interactive art installations like:
 - [Device Manager Architecture](device_manager/ARCHITECTURE.md)
 - [Device Manager API Specification](device_manager/API_SPEC.md)
 - [System Setup Guide](reference_documentation/system_setup.md)
-- [Hailo Dataflow Compiler Guide](reference_documentation/hailo_dataflow_compiler_v5.2.0_user_guide.md)
-- [Service Port Reconciliation](system_services/PLAN_service_port_reconciliation.md)
 
 ## Troubleshooting
 
