@@ -1,166 +1,320 @@
-# Raspberry Pi Hailo AI System Services
+# Raspberry Pi Hailo AI Services
 
-Modular, persistent system services for leveraging the Hailo-10H NPU acceleration on a Raspberry Pi 5. This project provides a collection of managed, standardized AI service APIs—think of them as the "system glue" for building AI applications that run reliably alongside other Pi workloads.
+**Multiple AI services running concurrently on the Hailo-10H NPU through intelligent device management**
 
-## What This Is
+This project transforms the [Raspberry Pi AI HAT+ 2 (Hailo-10H)](https://www.raspberrypi.com/news/introducing-the-raspberry-pi-ai-hat-plus-2-generative-ai-on-raspberry-pi-5/) into a multi-service AI platform by solving the core challenge: **the NPU can only handle one inference context at a time**. Through a custom device manager and service architecture, up to 6 AI services can be loaded simultaneously as hot, available APIs.
 
-**Purpose:** Wrap Hailo-accelerated AI capabilities (LLMs, object detection, pose estimation, speech recognition, and more) as individual systemd services with standardized REST APIs.
+## Demo Video
 
-**Philosophy:** Build atop existing standards and proven protocols rather than reinventing the wheel. Services adopt the conventions of their domains (Ollama-compatible REST for LLMs, Whisper API patterns for speech, COCO formats for vision). These are pragmatic, personal projects and art installations—functionality and ease of deployment matter more than theoretical perfection.
+[![Hailo-10H Multiple AI Services Demo](https://img.youtube.com/vi/rwhzHg_7i9c/maxresdefault.jpg)](https://www.youtube.com/watch?v=rwhzHg_7i9c)
 
-**Use Cases:**
-- Run multiple AI models concurrently on a Pi, each managed as an independent service
-- Build applications that call standardized AI endpoints
-- Deploy AI capabilities that persist across reboots and integrate cleanly with systemd
-- Experiment with Hailo-10H acceleration without writing kernel-level code
+*Watch the demo: Testing multiple vision, language, and audio AI services running concurrently on a Raspberry Pi 5*
 
-## Target Environment
+## Hardware Requirements
 
-- **Hardware:** Raspberry Pi 5 with AI HAT+ 2 (containing the Hailo-10H NPU)
-- **OS:** 64-bit Raspberry Pi OS (Trixie or later)
-- **Prerequisites:** Hailo-10H kernel driver and runtime (`dkms`, `hailo-h10-all`)
-- **Management:** systemd service units for lifecycle control and logging via journald
+- **Raspberry Pi 5** (4GB+ RAM recommended)
+- **Raspberry Pi AI HAT+ 2** with Hailo-10H NPU (13 TOPS)
+- **64-bit Raspberry Pi OS** (Trixie - Debian 13)
+- **Hailo driver and runtime** installed (`hailo-all` package)
 
-## Services
+## The Problem This Solves
 
-This project establishes standardized patterns for wrapping Hailo-accelerated AI capabilities as systemd services.
+The Hailo-10H NPU is powerful but exclusive—only one service can create an inference context (VDevice) at a time. Starting a second service fails with:
 
-
-
-
-
-### Working Services
-- **hailo-clip** — CLIP image-text embedding model (production-ready)
-- **hailo-ollama** — LLM inference service (Ollama-compatible REST API, production-ready)
-- **hailo-vision** — Qwen VLM (Qwen2-VL-2B-Instruct) vision-language model (production-ready)
-- **hailo-ocr** — Optical character recognition (PaddleOCR, Hailo-10H accelerated via device_manager, production-ready)
-- **hailo-pose** — Human pose estimation (YOLOv8 keypoints, COCO format, production-ready)
-- **hailo-whisper** — Speech-to-text transcription (Whisper models, OpenAI Whisper API-compatible, production-ready)
-- **hailo-piper** — Text-to-speech synthesis (Piper TTS, CPU-only; production-ready)
-- **hailo-depth** — Monocular depth estimation (scdepthv3 on Hailo-10H, ~11.5ms inference, production-ready, **fully refactored to async/await and device manager integration, tested February 2026**)
-
-### Draft/Experimental Services
-- **hailo-face** — Face detection and embedding comparison
-- **hailo-scrfd** — Specialized face detection (SCRFD)
-- **hailo-florence** — Vision understanding and captioning (installer complete; HEF files require Hailo-10H recompilation)
-
-Each working service follows the same deployment patterns, offers idiomatic APIs for its domain, and integrates with systemd for reliable operation. Draft/experimental services have draft installers and require further testing before production use.
-
-## Runtime Deployment Matrix
-
-| Service | Runtime | Python environment | Model download | NPU Acceleration |
-| --- | --- | --- | --- | --- |
-| hailo-clip | Python service | Dedicated venv in /opt/hailo-clip/venv (installer-managed) | Install-time resource download; optional warmup | ✅ Full (image/text encoders) |
-| hailo-vision | Python service | Dedicated venv in /opt/hailo-vision/venv (installer-managed) | Install-time default model download; optional warmup | ✅ Full (ViT + LLM) |
-| hailo-ollama | Native binary (Ollama) | None | Optional warmup pull/chat after install | ✅ Full (LLM inference) |
-| hailo-whisper | Python service | System Python + apt/pip deps (no venv) | Optional warmup; models load on first use | ✅ Full (encoder/decoder) |
-| hailo-piper | Python service | System Python + pip piper-tts (no venv) | Optional install-time model download | ❌ CPU-only (no NPU) |
-| hailo-ocr | Python service | System Python + pip deps (no venv) | Optional warmup download | ✅ Full (detection + recognition) |
-| hailo-depth | Python service (async/await, device manager integrated) | System Python + apt/pip deps (no venv) | Install-time download (scdepthv3.hef, 11 MB) | ✅ Full (depth estimation) |
-| hailo-pose | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (YOLOv8 keypoints) |
-| hailo-face | Python service | System Python + apt/pip deps (no venv) | Models load at runtime | ✅ Full (SCRFD + ArcFace) |
-| hailo-scrfd | Python service | System Python + apt/pip deps (no venv) | Optional warmup | ✅ Full (face detection) |
-| hailo-florence | Python service | Dedicated venv in /opt/hailo-florence/venv (installer-managed) | Install-time resource download | ⚠️ HEF compatibility issue (Hailo-8 → Hailo-10H) |
-
-## Getting Started
-
-### System Setup
-
-Before services are ready, ensure your Raspberry Pi 5 has the Hailo driver installed:
-
-```bash
-sudo apt install dkms hailo-h10-all
-sudo reboot
-hailortcli fw-control identify  # Verify installation
+```
+HAILO_OUT_OF_PHYSICAL_DEVICES(74): Failed to create vdevice.
+there are not enough free devices. requested: 1, found: 0
 ```
 
-See [reference_documentation/system_setup.md](reference_documentation/system_setup.md) for detailed setup and troubleshooting.
+Traditional workflows require stopping one service before starting another, making it impractical to run multiple AI capabilities simultaneously.
 
-### Service Deployment (Coming Soon)
+## Key Features
 
-Each service directory will include an installer script for easy deployment:
+### 1. 🎯 Hailo Device Manager
+**Centralized device access and request serialization**
+
+The device manager holds the exclusive VDevice connection and queues inference requests from multiple services. Services become lightweight clients communicating via Unix socket, enabling concurrent operation without device conflicts.
+
+**Features:**
+- Exclusive VDevice ownership with request queueing
+- Unix socket API (`/run/hailo/device.sock`)
+- Model caching in Hailo VRAM (8GB dedicated)
+- Graceful request serialization (~10-20ms IPC overhead)
+- Hot-swappable service integration
+
+**Architecture:**
+```
+┌─────────────────────────────────────────────┐
+│         Hailo Device Manager                │
+│  • Exclusive VDevice                        │
+│  • Request Queue (serialization)            │
+│  • Model Registry (VRAM caching)            │
+│  • Unix Socket: /run/hailo/device.sock      │
+└─────────────────────────────────────────────┘
+         ▲              ▲              ▲
+         │              │              │
+    ┌────────┐     ┌────────┐    ┌────────┐
+    │ Vision │     │  CLIP  │    │Whisper │
+    │(Client)│     │(Client)│    │(Client)│
+    └────────┘     └────────┘    └────────┘
+```
+
+📖 [Full Device Manager Documentation](device_manager/README.md)
+
+### 2. 🚀 System Services with REST APIs
+
+Manufacturer-provided Hailo applications repackaged as persistent systemd services with standardized REST APIs:
+
+| Service | Description | Status | Port | API Standard |
+|---------|-------------|--------|------|--------------|
+| **hailo-clip** | Zero-shot image classification | ✅ Production | 5000 | OpenAI-inspired |
+| **hailo-vision** | Vision-language model (Qwen2-VL-2B) | ✅ Production | 11435 | OpenAI Chat API |
+| **hailo-whisper** | Speech-to-text (Whisper-Base) | ✅ Production | 11437 | OpenAI Whisper API |
+| **hailo-ocr** | Text detection + recognition | ✅ Production | 11436 | Custom |
+| **hailo-pose** | Human pose estimation (YOLOv8) | ✅ Production | 11440 | Custom |
+| **hailo-depth** | Monocular depth estimation | ✅ Production | 11439 | Custom |
+| **hailo-piper** | Text-to-speech (Piper TTS) | ✅ Production | 5003 | OpenAI TTS API |
+| **hailo-ollama** | LLM inference (Qwen2.5-1.5B) | ✅ Production* | 11434 | Ollama API |
+
+**Exception: hailo-ollama** uses a precompiled binary that doesn't support the device manager architecture. It requires exclusive device access and cannot run concurrently with other services.
+
+Each service includes:
+- Full API specification (`API_SPEC.md`)
+- Architecture documentation (`ARCHITECTURE.md`)
+- Installation scripts (`install.sh`)
+- Systemd service units
+- Integration tests
+
+📁 [Browse System Services](system_services/)
+
+### 3. 🎨 Gradio Web Portal
+
+**Unified Web UI for testing, monitoring, and managing all AI services**
+
+A comprehensive web interface providing:
+- **Service test tabs** — Full API coverage for all 8 services with file uploads
+- **Device status monitor** — Real-time temperature, memory, and loaded models
+- **Service control** — Start/stop/restart services via systemctl
+- **Parameter tuning** — All optional parameters exposed (sliders, dropdowns, etc.)
+- **Response visualization** — JSON results, audio playback, depth maps, pose keypoints
+
+Access at `http://localhost:7860` after installation.
+
+📖 [Web Portal Documentation](system_services/hailo-web-portal/PLAN_hailo-web-portal.md)
+
+## Quick Start
+
+### 1. Install Hailo Prerequisites
 
 ```bash
-cd system_services/hailo-ollama
+sudo apt update
+sudo apt full-upgrade
+sudo apt install dkms hailo-all
+sudo reboot
+
+# Verify installation
+hailortcli fw-control identify
+```
+
+### 2. Clone This Repository
+
+```bash
+git clone --recursive https://github.com/gregm123456/raspberry_pi_hailo_ai_services.git
+cd raspberry_pi_hailo_ai_services
+```
+
+### 3. Install Device Manager
+
+```bash
+cd device_manager
+sudo ./install.sh
+sudo systemctl status hailo-device-manager
+```
+
+### 4. Install Services
+
+Example: Install vision and CLIP services:
+
+```bash
+cd system_services/hailo-vision
+sudo ./install.sh
+
+cd ../hailo-clip
 sudo ./install.sh
 ```
 
-Once deployed, services can be managed via systemd:
+Repeat for other services as needed.
+
+### 5. Install Web Portal
 
 ```bash
-sudo systemctl start hailo-ollama
-sudo systemctl status hailo-ollama
-journalctl -u hailo-ollama -f
+cd system_services/hailo-web-portal
+sudo ./install.sh
+
+# Access portal
+xdg-open http://localhost:7860
 ```
 
-Show all hailo-* services:
+### 6. Test Concurrent Operation
 
-```
-systemctl list-units --type=service --all 'hailo-*' --no-legend --no-pager
-```
+```bash
+# Test device manager with multiple services
+cd device_manager
+python3 test_concurrent_services.py
 
-## Project Structure
-
-```
-system_services/
-├── hailo-ollama/          # LLM service (Ollama-compatible)
-│   ├── install.sh         # Deployment script
-│   ├── service.py         # Service implementation
-│   ├── hailo-ollama.service  # systemd unit
-│   ├── config.yaml        # Configuration template
-│   ├── README.md
-│   ├── API_SPEC.md
-│   ├── ARCHITECTURE.md
-│   └── TROUBLESHOOTING.md
-├── <future-service>/
-└── ...
-
-reference_documentation/
-├── system_setup.md        # Hailo-10 initial setup
-└── ...
+# Access Web Portal to test all services
+xdg-open http://localhost:7860
 ```
 
-## Coding Standards
+## Architecture
 
-- **Python:** 3.10+, PEP 8, type hints where they add clarity
-- **Bash:** shellcheck-compliant, idempotent, strict error handling
-- **Configuration:** YAML for readability
-- **Logging:** Python `logging` module with systemd/journald integration
-- **Philosophy:** Pragmatism over over-engineering; favor existing, proven libraries
+**System Overview:**
 
-## Key Considerations
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                     Raspberry Pi 5 + Hailo-10H                   │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────┐       │
+│  │         Hailo Device Manager (systemd)               │       │
+│  │  • Exclusive VDevice (Hailo-10H @ /dev/hailo0)       │       │
+│  │  • Model Cache (8GB VRAM)                            │       │
+│  │  • Request Queue + Serialization                     │       │
+│  │  • Unix Socket: /run/hailo/device.sock               │       │
+│  └──────────────────────────────────────────────────────┘       │
+│                        ▲ ▲ ▲ ▲ ▲                                │
+│                        │ │ │ │ │                                │
+│  ┌─────────────────────┴─┴─┴─┴─┴────────────────────────┐       │
+│  │          System Services (systemd + REST APIs)        │       │
+│  │  • hailo-vision (11435)    • hailo-clip (5000)        │       │
+│  │  • hailo-whisper (11437)   • hailo-ocr (11436)        │       │
+│  │  • hailo-pose (11440)      • hailo-depth (11439)      │       │
+│  │  • hailo-piper (5003)      • hailo-ollama (11434)*    │       │
+│  └───────────────────────────────────────────────────────┘       │
+│                        ▲ ▲ ▲ ▲ ▲                                │
+│  ┌─────────────────────┴─┴─┴─┴─┴────────────────────────┐       │
+│  │          Gradio Web Portal (7860)                     │       │
+│  │  • Service Testing UI                                 │       │
+│  │  • Device Monitoring                                  │       │
+│  │  • Service Control                                    │       │
+│  └───────────────────────────────────────────────────────┘       │
+│                                                                  │
+│  * hailo-ollama requires exclusive device access                │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-- **Resource Constraints:** Raspberry Pi 5 has ~5–6 GB usable RAM; monitor memory usage during concurrent service operation
-- **Thermal Management:** Hailo-10H and Pi CPU can heat up under load; consider passive cooling and monitor `vcgencmd measure_temp`
-- **Model Persistence:** Keep models loaded during service lifetime to avoid startup latency
-- **Concurrent Services:** The Hailo-10H supports multiple services; plan memory budgets accordingly
-- **Systemd Integration:** Services use Type=notify or Type=idle for proper supervision
+**Design Philosophy:**
+
+1. **Build on Standards** — Adopt existing protocols (Ollama API, OpenAI API patterns) rather than inventing new ones
+2. **Modular Services** — Each service is self-contained with its own installation, configuration, and documentation
+3. **Pragmatic Over Perfect** — Optimized for personal projects and art installations, not production enterprise systems
+4. **Systemd Integration** — Persistent services with automatic restart, journald logging, and resource limits
+
+## Git Submodules
+
+This repository includes several official Hailo repositories as submodules:
+
+| Submodule | Purpose | License |
+|-----------|---------|---------|
+| [**hailo-apps**](https://github.com/hailo-ai/hailo-apps-infra) | Application infrastructure and examples | [MIT](hailo-apps/LICENSE) |
+| [**hailo-rpi5-examples**](https://github.com/hailo-ai/hailo-rpi5-examples) | Raspberry Pi 5 specific examples | [MIT](hailo-rpi5-examples/LICENSE) |
+| [**hailo_model_zoo**](https://github.com/hailo-ai/hailo_model_zoo) | Pre-trained models and compilation tools | [MIT](hailo_model_zoo/LICENSE) |
+| [**hailo_model_zoo_genai**](https://github.com/hailo-ai/hailo_model_zoo_genai) | Generative AI models | [MIT](hailo_model_zoo_genai/LICENSE) |
+| [**hailort**](https://github.com/hailo-ai/hailort) | Runtime libraries and tools | [MIT + LGPL 2.1](hailort/README.md) |
+
+**Note:** The submodules are included for reference and building custom services. Most users can install pre-built packages via `apt install hailo-all`.
+
+## Community & Discussion
+
+**Forum Posts:**
+- [Hailo Community - 6 services via VDevice management](https://community.hailo.ai/t/hailo-10h-successfully-loading-6-services-as-hot-available-apis-via-vdevice-inference-context-management/18730)
+- [Raspberry Pi Forums - Multiple AI services demo](https://forums.raspberrypi.com/viewtopic.php?t=396078&sid=329fd1b8e46e2d954ef72c256f32ea65)
+
+## Related Projects
+
+This tooling supports interactive art installations like:
+- [**Coyote Interactive**](https://github.com/gregm123456/coyote_interactive) — Multi-modal AI art installation ([YouTube demo](https://www.youtube.com/watch?v=pncuq-U_tuU))
 
 ## Documentation
 
-Each service includes:
-- **README.md** — Overview, installation, configuration
-- **API_SPEC.md** — REST endpoints, request/response formats
-- **ARCHITECTURE.md** — Design decisions, resource model, limitations
-- **TROUBLESHOOTING.md** — Common issues and verification steps
+- [Device Manager Architecture](device_manager/ARCHITECTURE.md)
+- [Device Manager API Specification](device_manager/API_SPEC.md)
+- [System Setup Guide](reference_documentation/system_setup.md)
+- [Hailo Dataflow Compiler Guide](reference_documentation/hailo_dataflow_compiler_v5.2.0_user_guide.md)
+- [Service Port Reconciliation](system_services/PLAN_service_port_reconciliation.md)
+
+## Troubleshooting
+
+### Device conflicts
+```bash
+# Check device manager status
+sudo systemctl status hailo-device-manager
+
+# View device status
+curl http://127.0.0.1:5099/v1/device/status
+
+# Restart device manager
+sudo systemctl restart hailo-device-manager
+```
+
+### Service won't start
+```bash
+# Check logs
+sudo journalctl -u hailo-SERVICE-NAME -n 50 --no-pager
+
+# Verify device manager is running
+systemctl is-active hailo-device-manager
+
+# Check if another service is using the device
+lsof /dev/hailo0
+```
+
+### Ollama conflicts
+Ollama requires exclusive device access. Stop other services before starting:
+```bash
+sudo systemctl stop hailo-vision hailo-clip hailo-whisper
+sudo systemctl start hailo-ollama
+```
+
+## Performance Notes
+
+- **Inference Latency:** +10-20ms IPC overhead via device manager
+- **Model Loading:** One-time cost on first inference; models stay cached in 8GB Hailo VRAM
+- **Concurrent Requests:** Serialized by device manager; queue depth visible via status API
+- **Thermal:** Monitor device temperature; passive cooling recommended for sustained workloads
+- **Memory:** Services use minimal Pi RAM; models loaded into Hailo VRAM not system RAM
 
 ## Contributing
 
-This project welcomes contributions, improvements, and refinements. If you extend services, add new capabilities, or improve documentation, please feel free to contribute.
+This is a personal project for art installations. Contributions are welcome but not actively solicited. If you use this code for your own projects, I'd love to hear about it!
+
+**Areas for Contribution:**
+- Additional service integrations
+- Performance optimizations
+- Documentation improvements
+- Bug reports and fixes
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the [MIT License](LICENSE).
 
-The project includes several git submodules, each with their own open-source licenses:
-- **hailo-apps**, **hailo-rpi5-examples**, **hailo_model_zoo**, **hailo_model_zoo_genai** — MIT License
+### Submodule Licenses
+
+The included git submodules have their own open-source licenses:
+
+- **hailo-apps, hailo-rpi5-examples, hailo_model_zoo, hailo_model_zoo_genai** — MIT License
 - **hailort** — MIT License (libhailort, pyhailort, hailortcli) and LGPL 2.1 (hailonet)
 
 See the individual LICENSE files in each submodule directory for complete details.
 
+## Acknowledgments
+
+- **Hailo** for the incredible AI HAT+ 2 and comprehensive model zoo
+- **Raspberry Pi Foundation** for the Raspberry Pi 5 platform
+- The open-source community for tools like Gradio, FastAPI, and systemd
+
 ---
 
-**Last Updated:** February 2026  
-**Hailo-10H:** Requires kernel driver from Hailo Technologies  
-**Reference:** [System Setup Guide](reference_documentation/system_setup.md)  
-**Recent:** hailo-ocr refactored to device_manager integration (Feb 6, 2026) — exclusive NPU access and model serialization; **hailo-depth fully refactored to async/await and device manager integration, tested and production-ready (Feb 6, 2026)**
+**Author:** Greg Merritt ([@gregm123456](https://github.com/gregm123456))  
+**Project Start:** 2025  
+**Last Updated:** February 2026
