@@ -110,7 +110,7 @@ A comprehensive web interface providing:
 
 Access at `http://localhost:7860` after installation.
 
-📖 [Web Portal Documentation](system_services/hailo-web-portal/PLAN_hailo-web-portal.md)
+📖 [Web Portal Documentation](system_services/hailo-web-portal/README.md)
 
 ## Quick Start
 
