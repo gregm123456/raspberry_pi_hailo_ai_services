@@ -74,9 +74,9 @@ Manufacturer-provided Hailo applications repackaged as persistent systemd servic
 | **hailo-pose** | Human pose estimation (YOLOv8) | ✅ Production | 11440 | Custom |
 | **hailo-depth** | Monocular depth estimation | ✅ Production | 11439 | Custom |
 | **hailo-piper** | Text-to-speech (Piper TTS) | ✅ Production | 5003 | OpenAI TTS API |
-| **hailo-ollama** | LLM inference (Qwen2.5-1.5B) | ⚠️Production* | 11434 | Ollama API |
+| **hailo-ollama** | LLM inference (Qwen2.5-1.5B) | ⚠️ Production | 11434 | Ollama API |
 
-**Exception: hailo-ollama** uses a precompiled binary that doesn't support the device manager architecture. It requires exclusive device access and cannot run concurrently with other services.
+**⚠️ Exception: hailo-ollama** uses a precompiled binary that doesn't support the device manager architecture. It requires exclusive device access and cannot run concurrently with other services.
 
 Each service includes:
 - Full API specification (`API_SPEC.md`)
