@@ -75,35 +75,6 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
 
 
-def sanitize_upload_path(file_path: Optional[str]) -> Optional[str]:
-    """Copy uploaded file to ASCII-safe temp path.
-    
-    Gradio creates temp files using original filenames, which may contain
-    Unicode characters (e.g., macOS screenshots with '\u202f' spaces).
-    This causes encoding errors in Gradio's internal processing.
-    
-    Args:
-        file_path: Original file path from Gradio (may have Unicode filename)
-        
-    Returns:
-        Path to sanitized copy, or None if input is None
-    """
-    if not file_path:
-        return None
-    
-    original = Path(file_path)
-    if not original.exists():
-        return None
-    
-    # Get file extension for MIME type detection
-    suffix = original.suffix.lower() or '.bin'
-    
-    # Create temp file with ASCII-safe name
-    with tempfile.NamedTemporaryFile(mode='wb', suffix=suffix, delete=False) as tmp:
-        tmp.write(original.read_bytes())
-        return tmp.name
-
-
 @app.get("/api/status")
 async def get_device_status() -> Dict[str, Any]:
     return monitor.get_status()
@@ -226,7 +197,6 @@ def build_gradio_interface() -> gr.Blocks:
                         async def classify_image(
                             image: str, prompts_text: str, top_k: int, threshold: float
                         ) -> Tuple[Dict[str, Any], str]:
-                            image = sanitize_upload_path(image)
                             if not image or not prompts_text:
                                 return {"error": "Missing image or prompts"}, ""
                             prompts = [p.strip() for p in prompts_text.split("\n") if p.strip()]
@@ -252,7 +222,6 @@ def build_gradio_interface() -> gr.Blocks:
                                 )
 
                         async def get_image_embedding(image: str) -> Tuple[Dict[str, Any], str]:
-                            image = sanitize_upload_path(image)
                             if not image:
                                 return {"error": "Missing image"}, ""
                             result = await clip_client.embed_image(image)
@@ -334,7 +303,6 @@ def build_gradio_interface() -> gr.Blocks:
                         async def vision_chat(
                             image: str, prompt: str, temp: float, max_tok: int, top_p: float
                         ) -> Tuple[str, str]:
-                            image = sanitize_upload_path(image)
                             if not image or not prompt:
                                 return "Missing image or prompt", ""
                             result = await vision_client.chat_completions(
@@ -385,7 +353,6 @@ def build_gradio_interface() -> gr.Blocks:
                             prompt: str,
                             return_individual: bool,
                         ) -> Dict[str, Any]:
-                            images = [sanitize_upload_path(img) for img in images if img]
                             if not images or not prompt:
                                 return {"error": "Missing images or prompt"}
                             return await vision_client.vision_analyze(
@@ -455,7 +422,6 @@ def build_gradio_interface() -> gr.Blocks:
                         async def transcribe_audio(
                             audio: str, lang: str, fmt: str, temp: float
                         ) -> Tuple[str, Dict[str, Any]]:
-                            audio = sanitize_upload_path(audio)
                             if not audio:
                                 return "No audio uploaded", {}
                             lang_code = None if lang == "Auto" else lang
@@ -520,7 +486,6 @@ def build_gradio_interface() -> gr.Blocks:
                         async def extract_text(
                             image: str, lang: str
                         ) -> Tuple[str, Dict[str, Any], str]:
-                            image = sanitize_upload_path(image)
                             if not image:
                                 return "", {"error": "No image"}, ""
                             result = await ocr_client.extract_text(image, [lang])
@@ -602,7 +567,6 @@ def build_gradio_interface() -> gr.Blocks:
                             max_det: int,
                             kp_thresh: float,
                         ) -> Tuple[Dict[str, Any], str, str]:
-                            image = sanitize_upload_path(image)
                             if not image:
                                 return {"error": "No image"}, "", ""
                             result = await pose_client.detect_poses(
@@ -677,7 +641,6 @@ def build_gradio_interface() -> gr.Blocks:
                         async def estimate_depth(
                             image: str, fmt: str, colormap: str, normalize: bool
                         ) -> Tuple[Optional[Image.Image], Dict[str, Any], str]:
-                            image = sanitize_upload_path(image)
                             if not image:
                                 return None, {"error": "No image"}, ""
                             result = await depth_client.estimate_depth(
