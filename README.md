@@ -85,6 +85,16 @@ Each service includes:
 - Systemd service units
 - Integration tests
 
+#### Draft/Experimental Services
+
+The following services are in active development or awaiting additional work:
+
+- **hailo-face** — Face detection and embedding comparison
+- **hailo-scrfd** — Specialized face detection (SCRFD)
+- **hailo-florence** — Vision understanding and captioning (installer complete; HEF files require Hailo-10H recompilation)
+
+These services have installer scripts and partial implementations in [`system_services/`](system_services/) but their adaptations to the required structure for this project are incomplete.
+
 📁 [Browse System Services](system_services/)
 
 ### 3. 🎨 Gradio Web Portal
