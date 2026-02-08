@@ -249,6 +249,7 @@ This tooling was created in the spirit of supporting interactive art installatio
 - [Device Manager Architecture](device_manager/ARCHITECTURE.md)
 - [Device Manager API Specification](device_manager/API_SPEC.md)
 - [System Setup Guide](reference_documentation/system_setup.md)
+- Note: This repository includes VS Code GitHub Copilot guidance in [.github/copilot-instructions.md](.github/copilot-instructions.md), the skills folder at [.github/skills/](.github/skills/), and the agents folder at [.github/agents/](.github/agents/).
 
 ## Troubleshooting
 
