@@ -181,36 +181,35 @@ xdg-open http://localhost:7860
 **System Overview:**
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                     Raspberry Pi 5 + Hailo-10H                   │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────┐       │
-│  │         Hailo Device Manager (systemd)               │       │
-│  │  • Exclusive VDevice (Hailo-10H @ /dev/hailo0)       │       │
-│  │  • Model Cache (8GB VRAM)                            │       │
-│  │  • Request Queue + Serialization                     │       │
-│  │  • Unix Socket: /run/hailo/device.sock               │       │
-│  └──────────────────────────────────────────────────────┘       │
-│                        ▲ ▲ ▲ ▲ ▲                                │
-│                        │ │ │ │ │                                │
-│  ┌─────────────────────┴─┴─┴─┴─┴────────────────────────┐       │
-│  │          System Services (systemd + REST APIs)        │       │
-│  │  • hailo-vision (11435)    • hailo-clip (5000)        │       │
-│  │  • hailo-whisper (11437)   • hailo-ocr (11436)        │       │
-│  │  • hailo-pose (11440)      • hailo-depth (11439)      │       │
-│  │  • hailo-piper (5003)      • hailo-ollama (11434)*    │       │
-│  └───────────────────────────────────────────────────────┘       │
-│                        ▲ ▲ ▲ ▲ ▲                                │
-│  ┌─────────────────────┴─┴─┴─┴─┴────────────────────────┐       │
-│  │          Gradio Web Portal (7860)                     │       │
-│  │  • Service Testing UI                                 │       │
-│  │  • Device Monitoring                                  │       │
-│  │  • Service Control                                    │       │
-│  └───────────────────────────────────────────────────────┘       │
-│                                                                  │
-│  * hailo-ollama requires exclusive device access                │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                     Raspberry Pi 5 + Hailo-10H             │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │         Hailo Device Manager (systemd)               │  │
+│  │  • Exclusive VDevice (Hailo-10H @ /dev/hailo0)       │  │
+│  │  • Model Cache (8GB VRAM)                            │  │
+│  │  • Request Queue + Serialization                     │  │
+│  │  • Unix Socket: /run/hailo/device.sock               │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                        ▲ ▲ ▲ ▲ ▲                           │
+│                        │ │ │ │ │                           │
+│  ┌─────────────────────┴─┴─┴─┴─┴────────────────────────┐  │
+│  │          System Services (systemd + REST APIs)       │  │
+│  │  • hailo-vision (11435)    • hailo-clip (5000)       │  │
+│  │  • hailo-whisper (11437)   • hailo-ocr (11436)       │  │
+│  │  • hailo-pose (11440)      • hailo-depth (11439)     │  │
+│  │  • hailo-piper (5003)                                │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                        ▲ ▲ ▲ ▲ ▲                           │
+│  ┌─────────────────────┴─┴─┴─┴─┴────────────────────────┐  │
+│  │          Gradio Web Portal (7860)                    │  │
+│  │  • Service Testing UI                                │  │
+│  │  • Device Monitoring                                 │  │
+│  │  • Service Control                                   │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
 ```
 
 **Design Philosophy:**
