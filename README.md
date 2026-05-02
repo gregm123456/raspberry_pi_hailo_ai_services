@@ -15,7 +15,7 @@ This project transforms the [Raspberry Pi AI HAT+ 2 (Hailo-10H)](https://www.ras
 - **Raspberry Pi 5** (4GB+ RAM recommended)
 - **Raspberry Pi AI HAT+ 2** with Hailo-10H NPU (13 TOPS)
 - **64-bit Raspberry Pi OS** (Trixie - Debian 13)
-- **Hailo driver and runtime** installed (`hailo-all` package)
+- **Hailo driver and runtime** installed (`hailo-all` package)[^h10-package-conflict]
 
 ## The Problem This Solves
 
@@ -126,6 +126,8 @@ sudo reboot
 hailortcli fw-control identify
 ```
 
+[^h10-package-conflict]: On this Hailo-10H setup, the breakage was caused by the Hailo Python runtime package for the device manager disappearing from the system. `hailo-device-manager.service` failed with `ModuleNotFoundError: No module named 'hailo_platform'`, so it never created `/run/hailo/device.sock`; that, in turn, made `hailo-vision`, `hailo-whisper`, `hailo-depth`, `hailo-ocr`, and `hailo-pose` fall into restart loops with `Device manager socket not found at /run/hailo/device.sock`. The change that fixed it was reinstalling the Hailo-10H-specific runtime bindings with `sudo apt install python3-h10-hailort`, which also restored `h10-hailort`; after that, restarting `hailo-device-manager` and the dependent services brought the stack back up. On Pi 5 + Hailo-10H systems, prefer the `hailo-h10-all` / `python3-h10-hailort` package family over generic `hailort` package swaps.
+
 ### 2. Clone This Repository
 
 ```bash
@@ -231,7 +233,7 @@ This repository includes several official Hailo repositories as submodules:
 | [**hailo_model_zoo_genai**](https://github.com/hailo-ai/hailo_model_zoo_genai) | Generative AI models | [MIT](https://github.com/hailo-ai/hailo_model_zoo_genai/blob/8eb58a6ff6719fee9528c4e057b800438f2405cd/LICENSE) |
 | [**hailort**](https://github.com/hailo-ai/hailort) | Runtime libraries and tools | [MIT + LGPL 2.1](https://github.com/hailo-ai/hailort/blob/41a720b9fedb56a4ee9ea39506afecf3f9ace2eb/README.md#licenses) |
 
-**Note:** The submodules are included for reference and building custom services. Most users can install pre-built packages via `apt install hailo-all`.
+**Note:** The submodules are included for reference and building custom services. Most users can install pre-built packages via `apt install hailo-all`.[^h10-package-conflict]
 
 ## Community & Discussion
 
