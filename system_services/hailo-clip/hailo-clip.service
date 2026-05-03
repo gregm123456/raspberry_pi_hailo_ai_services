@@ -1,7 +1,7 @@
 [Unit]
 Description=Hailo CLIP (Zero-Shot Image Classification on Hailo-10H)
-After=network-online.target
-Wants=network-online.target
+After=network-online.target hailo-device-manager.service
+Wants=network-online.target hailo-device-manager.service
 
 [Service]
 Type=simple

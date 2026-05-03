@@ -17,8 +17,8 @@ ExecStart=/opt/hailo-device-manager/venv/bin/python3 /opt/hailo-device-manager/h
 # Restart policy
 Restart=always
 RestartSec=5
-StartLimitInterval=60
-StartLimitBurst=3
+StartLimitInterval=120
+StartLimitBurst=12
 
 # Resource limits
 CPUQuota=20%

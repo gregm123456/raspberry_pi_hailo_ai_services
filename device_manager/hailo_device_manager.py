@@ -734,6 +734,7 @@ class HailoDeviceManager:
             "HAILO_DEVICE_MAX_EVICTIONS", DEFAULT_MAX_EVICTIONS
         )
         self._total_evictions: int = 0
+        self._runtime_broken_reason: Optional[str] = None
         self._server: Optional[asyncio.AbstractServer] = None
         self._http_server: Optional[http.server.ThreadingHTTPServer] = None
         self._http_thread: Optional[threading.Thread] = None
@@ -750,6 +751,100 @@ class HailoDeviceManager:
                 PoseHandler.model_type: PoseHandler(),
         }
         self._queue_depth = 0
+
+    def _create_vdevice(self) -> None:
+        if not self.device:
+            raise RuntimeError("Cannot create VDevice without an open device")
+
+        params = hailo_platform.VDevice.create_params()
+        group_id = _get_env_int("HAILO_DEVICE_GROUP_ID", -1)
+        if group_id >= 0:
+            params.group_id = group_id
+        elif SHARED_VDEVICE_GROUP_ID is not None:
+            params.group_id = SHARED_VDEVICE_GROUP_ID
+        self.vdevice = hailo_platform.VDevice(params)
+
+    def _ensure_runtime_context(self) -> Optional[str]:
+        """Ensure Device + VDevice are available for model operations."""
+        if self.device is not None and self.vdevice is not None:
+            return None
+
+        # Rebuild from scratch if either handle is missing.
+        if self.vdevice is not None:
+            try:
+                self.vdevice.release()
+            except Exception:
+                pass
+            self.vdevice = None
+
+        if self.device is not None:
+            try:
+                self.device.release()
+            except Exception:
+                pass
+            self.device = None
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, 4):
+            try:
+                self.device = hailo_platform.Device()
+                self._create_vdevice()
+                self._runtime_broken_reason = None
+                if attempt > 1:
+                    logger.info("Recovered runtime context on attempt %d", attempt)
+                return None
+            except Exception as e:
+                last_error = e
+                # Clear partially initialized handles before retry.
+                if self.vdevice is not None:
+                    try:
+                        self.vdevice.release()
+                    except Exception:
+                        pass
+                    self.vdevice = None
+                if self.device is not None:
+                    try:
+                        self.device.release()
+                    except Exception:
+                        pass
+                    self.device = None
+                time.sleep(0.25)
+
+        reason = f"runtime context unavailable: {last_error}"
+        self._runtime_broken_reason = reason
+        return reason
+
+    def _reset_runtime_context(self) -> None:
+        """Rebuild the Hailo device/VDevice context after unrecoverable load failures."""
+        logger.warning("Resetting Hailo runtime context")
+
+        for entry in list(self.loaded_models.values()):
+            try:
+                self._get_handler(entry.model_type).unload(entry.model)
+            except Exception as e:
+                logger.warning("Error during model cleanup while resetting context: %s", e)
+        self.loaded_models.clear()
+
+        if self.vdevice:
+            try:
+                self.vdevice.release()
+            except Exception as e:
+                logger.warning("Error releasing VDevice during reset: %s", e)
+            finally:
+                self.vdevice = None
+
+        if self.device:
+            try:
+                self.device.release()
+            except Exception as e:
+                logger.warning("Error releasing Device during reset: %s", e)
+            finally:
+                self.device = None
+
+        ensure_error = self._ensure_runtime_context()
+        if ensure_error:
+            raise RuntimeError(ensure_error)
+        logger.info("Hailo runtime context reset complete")
 
     async def initialize(self) -> None:
         logger.info("Initializing Hailo Device Manager...")
@@ -771,13 +866,7 @@ class HailoDeviceManager:
             raise RuntimeError(f"Failed to open device: {e}")
 
         try:
-            params = hailo_platform.VDevice.create_params()
-            group_id = _get_env_int("HAILO_DEVICE_GROUP_ID", -1)
-            if group_id >= 0:
-                params.group_id = group_id
-            elif SHARED_VDEVICE_GROUP_ID is not None:
-                params.group_id = SHARED_VDEVICE_GROUP_ID
-            self.vdevice = hailo_platform.VDevice(params)
+            self._create_vdevice()
             logger.info("VDevice created successfully")
         except Exception as e:
             if self.device:
@@ -908,6 +997,7 @@ class HailoDeviceManager:
             "socket_path": self.socket_path,
             "queue_depth": self._queue_depth,
             "total_lru_evictions": self._total_evictions,
+            "runtime_broken_reason": self._runtime_broken_reason,
         }
 
     def _device_status_payload(self) -> Dict[str, Any]:
@@ -957,6 +1047,7 @@ class HailoDeviceManager:
             "uptime_seconds": time.time() - self.start_time,
             "queue_depth": self._queue_depth,
             "total_lru_evictions": self._total_evictions,
+            "runtime_broken_reason": self._runtime_broken_reason,
         }
 
     def _start_http_server(self) -> None:
@@ -1028,7 +1119,12 @@ class HailoDeviceManager:
     @staticmethod
     def _is_resource_exhausted(exc: Exception) -> bool:
         """Return True if the exception indicates Hailo VRAM is full."""
-        return "HAILO_RESOURCE_EXHAUSTED" in str(exc)
+        message = str(exc).strip()
+        return (
+            "HAILO_RESOURCE_EXHAUSTED" in message
+            or message == "81"
+            or message.endswith("(81)")
+        )
 
     def _evict_lru(self) -> Optional[str]:
         """Unload the least-recently-used model from VRAM.
@@ -1055,6 +1151,16 @@ class HailoDeviceManager:
 
         self._total_evictions += 1
         return lru_key
+
+    def _evict_all_lru(self) -> int:
+        """Unload all currently tracked models from VRAM via LRU order."""
+        evicted_count = 0
+        while self.loaded_models:
+            evicted = self._evict_lru()
+            if evicted is None:
+                break
+            evicted_count += 1
+        return evicted_count
 
     def _load_model(self, request: Dict[str, Any]) -> Dict[str, Any]:
         model_path = request.get("model_path")
@@ -1083,7 +1189,22 @@ class HailoDeviceManager:
             return response
 
         evictions = 0
+        # Allow per-request evictions to scale with current model pressure.
+        # +1 allows one extra exhausted cycle after all tracked models are evicted,
+        # so the runtime-context reset path can run instead of failing immediately.
+        eviction_limit = max(self.max_evictions, len(self.loaded_models) + 1)
+        reset_attempted = False
+        aggressive_sweep_done = False
         while True:
+            ensure_error = self._ensure_runtime_context()
+            if ensure_error:
+                logger.error("Cannot load model %s: %s", model_path, ensure_error)
+                return {
+                    "error": (
+                        "Device manager runtime unavailable. "
+                        f"Details: {ensure_error}"
+                    )
+                }
             try:
                 handler = self._get_handler(model_type)
                 logger.info("Loading model: %s (%s)", model_path, model_type)
@@ -1108,9 +1229,41 @@ class HailoDeviceManager:
                     }
                 return response
             except Exception as e:
-                if self._is_resource_exhausted(e) and evictions < self.max_evictions:
+                if self._is_resource_exhausted(e) and evictions < eviction_limit:
+                    if evictions > 0 and not aggressive_sweep_done and self.loaded_models:
+                        swept = self._evict_all_lru()
+                        aggressive_sweep_done = True
+                        evictions += swept
+                        logger.warning(
+                            "RESOURCE_EXHAUSTED loading %s - aggressive LRU sweep evicted %d model(s)",
+                            model_path,
+                            swept,
+                        )
+                        continue
+
                     evicted = self._evict_lru()
                     if evicted is None:
+                        if not reset_attempted:
+                            logger.warning(
+                                "RESOURCE_EXHAUSTED loading %s with no tracked models left; "
+                                "resetting runtime context and retrying once",
+                                model_path,
+                            )
+                            try:
+                                self._reset_runtime_context()
+                            except Exception as reset_error:
+                                logger.error(
+                                    "Failed to reset runtime context after RESOURCE_EXHAUSTED: %s",
+                                    reset_error,
+                                )
+                                return {
+                                    "error": (
+                                        "RESOURCE_EXHAUSTED and runtime context reset failed: "
+                                        f"{reset_error}"
+                                    )
+                                }
+                            reset_attempted = True
+                            continue
                         logger.error(
                             "RESOURCE_EXHAUSTED loading %s but no models to evict",
                             model_path,
@@ -1120,11 +1273,11 @@ class HailoDeviceManager:
                         }
                     evictions += 1
                     logger.warning(
-                        "RESOURCE_EXHAUSTED loading %s — evicted LRU model %s (attempt %d/%d)",
+                        "RESOURCE_EXHAUSTED loading %s - evicted LRU model %s (attempt %d/%d)",
                         model_path,
                         evicted,
                         evictions,
-                        self.max_evictions,
+                        eviction_limit,
                     )
                     # loop and retry
                 else:

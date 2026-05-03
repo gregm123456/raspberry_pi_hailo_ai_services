@@ -14,6 +14,7 @@ import os
 import signal
 import sys
 import threading
+import time
 import traceback
 from io import BytesIO
 from pathlib import Path
@@ -257,7 +258,41 @@ class CLIPModel:
                     model_params=self._clip_model_params(),
                 )
 
-        self._run_async(_load())
+        max_retries = int(os.environ.get("HAILO_DEVICE_CONNECT_RETRIES", "20"))
+        retry_delay_s = float(os.environ.get("HAILO_DEVICE_CONNECT_RETRY_DELAY", "1.0"))
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                self._run_async(_load())
+                if attempt > 1:
+                    logger.info(
+                        "Connected to device manager after %d attempt(s)",
+                        attempt,
+                    )
+                return
+            except Exception as e:
+                last_error = e
+                msg = str(e).lower()
+                transient = (
+                    "socket not found" in msg
+                    or "cannot connect" in msg
+                    or "connection refused" in msg
+                    or "no such file or directory" in msg
+                )
+                if transient and attempt < max_retries:
+                    if attempt == 1:
+                        logger.warning(
+                            "Device manager not ready; retrying model registration (%d retries max)",
+                            max_retries,
+                        )
+                    time.sleep(retry_delay_s)
+                    continue
+                raise
+
+        raise RuntimeError(
+            f"Failed to connect to device manager after {max_retries} attempts: {last_error}"
+        )
 
     async def _encode_image_with_client(
         self, client: "HailoDeviceClient", image_array: np.ndarray
