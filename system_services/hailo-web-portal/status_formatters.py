@@ -357,17 +357,27 @@ def create_ram_overview_html(status_data: Dict[str, Any]) -> str:
         </div>
         """
 
-    free_pct = max(0.0, 100.0 - util_pct)
+    free_pct = (free_mb / total_mb) * 100.0 if total_mb > 0 else 0.0
     weights = _estimate_model_weights(networks)
     weight_sum = sum(weights)
 
     segments_html: List[str] = []
     legend_html: List[str] = []
+    overhead_color = "#596275"
+    overhead_mb = used_mb
+
     if networks and used_mb > 0.0 and weight_sum > 0.0:
+        # Reserve a visible runtime-overhead bucket so one model does not absorb
+        # all shared runtime costs in the visualization.
+        overhead_fraction = max(0.12, min(0.35 - (0.04 * len(networks)), 0.35))
+        overhead_mb = max(used_mb * overhead_fraction, min(used_mb, 220.0))
+        overhead_mb = min(overhead_mb, used_mb * 0.45)
+        model_budget_mb = max(used_mb - overhead_mb, 0.0)
+
         for idx, net in enumerate(networks):
             color = _MODEL_COLORS[idx % len(_MODEL_COLORS)]
             fraction = weights[idx] / weight_sum
-            est_mb = used_mb * fraction
+            est_mb = model_budget_mb * fraction
             pct_total = (est_mb / total_mb) * 100.0
             name = str(net.get("name", "unknown"))
             model_type = str(net.get("model_type", "unknown"))
@@ -384,6 +394,31 @@ def create_ram_overview_html(status_data: Dict[str, Any]) -> str:
                 "</div>"
             )
 
+        segments_html.append(
+            f'<div title="Runtime overhead: ~{overhead_mb:.0f} MB" '
+            f'style="height:100%;width:{(overhead_mb / total_mb) * 100.0:.2f}%;background:{overhead_color};"></div>'
+        )
+        legend_html.append(
+            "<div style=\"display:flex;align-items:center;gap:6px;font-size:11px;color:#c9ccd4;\">"
+            f"<span style=\"display:inline-block;width:9px;height:9px;border-radius:2px;background:{overhead_color};\"></span>"
+            "<span>Runtime overhead</span>"
+            f"<span style=\"opacity:0.75;\">~{overhead_mb:.0f} MB</span>"
+            "</div>"
+        )
+    elif used_mb > 0.0:
+        # No model list available; treat all used memory as runtime overhead.
+        segments_html.append(
+            f'<div title="Runtime overhead: ~{used_mb:.0f} MB" '
+            f'style="height:100%;width:{(used_mb / total_mb) * 100.0:.2f}%;background:{overhead_color};"></div>'
+        )
+        legend_html.append(
+            "<div style=\"display:flex;align-items:center;gap:6px;font-size:11px;color:#c9ccd4;\">"
+            f"<span style=\"display:inline-block;width:9px;height:9px;border-radius:2px;background:{overhead_color};\"></span>"
+            "<span>Runtime overhead</span>"
+            f"<span style=\"opacity:0.75;\">~{used_mb:.0f} MB</span>"
+            "</div>"
+        )
+
     # Free segment is always shown at the end.
     segments_html.append(
         f'<div title="Free: {free_mb:.0f} MB" '
@@ -398,6 +433,17 @@ def create_ram_overview_html(status_data: Dict[str, Any]) -> str:
         legend_block = (
             "<div style=\"font-size:11px;color:#c9ccd4;opacity:0.8;\">"
             "No loaded models to estimate memory split.</div>"
+        )
+
+    capacity_reason = status_data.get("last_capacity_event_reason")
+    capacity_model = status_data.get("last_capacity_event_model")
+    capacity_note = ""
+    if capacity_reason:
+        model_suffix = f" ({os.path.basename(str(capacity_model))})" if capacity_model else ""
+        capacity_note = (
+            "<div style=\"margin-top:6px;font-size:10px;color:#ffcc80;\">"
+            f"Last capacity event: {capacity_reason}{model_suffix}"
+            "</div>"
         )
 
     return f"""
@@ -419,5 +465,6 @@ def create_ram_overview_html(status_data: Dict[str, Any]) -> str:
         </div>
       </div>
       <div style="margin-top:6px;font-size:10px;opacity:0.65;">Per-model values are estimated from loaded HEF artifacts and model type.</div>
+            {capacity_note}
     </div>
     """

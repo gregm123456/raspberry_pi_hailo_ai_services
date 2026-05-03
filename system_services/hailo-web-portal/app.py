@@ -151,6 +151,9 @@ def build_gradio_interface() -> gr.Blocks:
                 f"Comprehensive testing interface for Hailo-10H AI services on Raspberry Pi 5.  \n"
                 f"**{device_header}**"
             )
+            capacity_reason = status_data.get("last_capacity_event_reason")
+            if capacity_reason:
+                subtitle_text += f"  \nLast capacity event: {capacity_reason}"
             
             device = status_data.get("device", {})
             temp_c = device.get("temperature_celsius", 0)

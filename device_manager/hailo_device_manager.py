@@ -735,6 +735,9 @@ class HailoDeviceManager:
         )
         self._total_evictions: int = 0
         self._runtime_broken_reason: Optional[str] = None
+        self._last_capacity_event_reason: Optional[str] = None
+        self._last_capacity_event_model: Optional[str] = None
+        self._last_capacity_event_at: Optional[float] = None
         self._server: Optional[asyncio.AbstractServer] = None
         self._http_server: Optional[http.server.ThreadingHTTPServer] = None
         self._http_thread: Optional[threading.Thread] = None
@@ -998,6 +1001,9 @@ class HailoDeviceManager:
             "queue_depth": self._queue_depth,
             "total_lru_evictions": self._total_evictions,
             "runtime_broken_reason": self._runtime_broken_reason,
+            "last_capacity_event_reason": self._last_capacity_event_reason,
+            "last_capacity_event_model": self._last_capacity_event_model,
+            "last_capacity_event_at": self._last_capacity_event_at,
         }
 
     def _device_status_payload(self) -> Dict[str, Any]:
@@ -1048,6 +1054,9 @@ class HailoDeviceManager:
             "queue_depth": self._queue_depth,
             "total_lru_evictions": self._total_evictions,
             "runtime_broken_reason": self._runtime_broken_reason,
+            "last_capacity_event_reason": self._last_capacity_event_reason,
+            "last_capacity_event_model": self._last_capacity_event_model,
+            "last_capacity_event_at": self._last_capacity_event_at,
         }
 
     def _start_http_server(self) -> None:
@@ -1116,6 +1125,11 @@ class HailoDeviceManager:
     def _model_key(self, model_type: str, model_path: str) -> str:
         return f"{model_type}:{model_path}"
 
+    def _record_capacity_event(self, reason: str, model: Optional[str] = None) -> None:
+        self._last_capacity_event_reason = reason
+        self._last_capacity_event_model = model
+        self._last_capacity_event_at = time.time()
+
     @staticmethod
     def _is_resource_exhausted(exc: Exception) -> bool:
         """Return True if the exception indicates Hailo VRAM is full."""
@@ -1126,7 +1140,7 @@ class HailoDeviceManager:
             or message.endswith("(81)")
         )
 
-    def _evict_lru(self) -> Optional[str]:
+    def _evict_lru(self, reason: Optional[str] = None) -> Optional[str]:
         """Unload the least-recently-used model from VRAM.
 
         Returns the evicted model key, or None if the registry is empty.
@@ -1150,13 +1164,15 @@ class HailoDeviceManager:
             logger.warning("LRU eviction unload error (ignored): %s", e)
 
         self._total_evictions += 1
+        if reason:
+            self._record_capacity_event(reason, entry.model_path)
         return lru_key
 
-    def _evict_all_lru(self) -> int:
+    def _evict_all_lru(self, reason: Optional[str] = None) -> int:
         """Unload all currently tracked models from VRAM via LRU order."""
         evicted_count = 0
         while self.loaded_models:
-            evicted = self._evict_lru()
+            evicted = self._evict_lru(reason=reason)
             if evicted is None:
                 break
             evicted_count += 1
@@ -1230,8 +1246,12 @@ class HailoDeviceManager:
                 return response
             except Exception as e:
                 if self._is_resource_exhausted(e) and evictions < eviction_limit:
+                    event_reason = (
+                        "RESOURCE_EXHAUSTED while loading "
+                        f"{Path(model_path).name} ({model_type})"
+                    )
                     if evictions > 0 and not aggressive_sweep_done and self.loaded_models:
-                        swept = self._evict_all_lru()
+                        swept = self._evict_all_lru(reason=event_reason)
                         aggressive_sweep_done = True
                         evictions += swept
                         logger.warning(
@@ -1241,9 +1261,10 @@ class HailoDeviceManager:
                         )
                         continue
 
-                    evicted = self._evict_lru()
+                    evicted = self._evict_lru(reason=event_reason)
                     if evicted is None:
                         if not reset_attempted:
+                            self._record_capacity_event(event_reason, model_path)
                             logger.warning(
                                 "RESOURCE_EXHAUSTED loading %s with no tracked models left; "
                                 "resetting runtime context and retrying once",
@@ -1252,6 +1273,10 @@ class HailoDeviceManager:
                             try:
                                 self._reset_runtime_context()
                             except Exception as reset_error:
+                                self._record_capacity_event(
+                                    f"{event_reason}; runtime reset failed: {reset_error}",
+                                    model_path,
+                                )
                                 logger.error(
                                     "Failed to reset runtime context after RESOURCE_EXHAUSTED: %s",
                                     reset_error,
@@ -1266,6 +1291,10 @@ class HailoDeviceManager:
                             continue
                         logger.error(
                             "RESOURCE_EXHAUSTED loading %s but no models to evict",
+                            model_path,
+                        )
+                        self._record_capacity_event(
+                            f"{event_reason}; no models available to evict",
                             model_path,
                         )
                         return {
