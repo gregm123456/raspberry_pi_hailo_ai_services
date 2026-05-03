@@ -75,7 +75,7 @@ PY
 
 preflight_hailo() {
     if [[ ! -e /dev/hailo0 ]]; then
-        error "/dev/hailo0 not found. Install Hailo driver: sudo apt install dkms hailo-h10-all"
+        error "/dev/hailo0 not found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.3.0): install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/"
         exit 1
     fi
 

@@ -42,7 +42,7 @@ require_command() {
 
 preflight_hailo() {
     if [[ ! -e /dev/hailo0 ]]; then
-        error "/dev/hailo0 not found. Install Hailo driver: sudo apt install dkms hailo-h10-all"
+        error "/dev/hailo0 not found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.3.0): install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/"
         exit 1
     fi
 
@@ -84,11 +84,16 @@ create_user_group() {
     fi
 }
 
+# HailoRT Python wheel — must be installed per-venv (not available as a system deb on 5.3.0)
+HAILORT_WHEEL_URL="https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl"
+
 create_venv() {
     log "Creating Python virtual environment with system site packages"
     mkdir -p "${SERVICE_DIR}"
     rm -rf "${SERVICE_DIR}/venv"
     python3 -m venv --system-site-packages "${SERVICE_DIR}/venv"
+    log "Installing hailort Python wheel into venv"
+    "${SERVICE_DIR}/venv/bin/pip" install --quiet "${HAILORT_WHEEL_URL}"
     chown -R root:root "${SERVICE_DIR}/venv"
 }
 

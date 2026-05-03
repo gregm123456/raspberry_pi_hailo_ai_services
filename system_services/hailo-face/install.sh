@@ -46,7 +46,7 @@ check_prerequisites() {
     # Check for Hailo driver
     if ! lsmod | grep -q hailo; then
         warn "Hailo kernel module not loaded"
-        warn "Run: sudo apt install dkms hailo-h10-all && sudo reboot"
+        warn "Run: sudo apt install dkms hailo-h10-all && sudo reboot  (5.1.1 from Pi repo)  OR install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/ for 5.3.0"
     fi
     
     # Check for Python

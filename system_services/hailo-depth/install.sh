@@ -20,6 +20,7 @@ VENDOR_DIR="${SERVICE_DIR}/vendor"
 HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
 HAILO_APPS_VENDOR_PATH="${VENDOR_DIR}/hailo-apps"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
+HAILORT_WHEEL_URL="https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl"
 INSTALL_TARGET="${VENV_DIR}/bin/python"
 
 WARMUP_MODEL=""
@@ -129,13 +130,15 @@ install_python_packages() {
     # Use venv Python to install packages
     "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
     "${VENV_DIR}/bin/pip" install -r "${REQUIREMENTS_FILE}"
+    log "Installing hailort Python wheel into venv"
+    "${VENV_DIR}/bin/pip" install --quiet "${HAILORT_WHEEL_URL}"
     
     log "✓ Python packages installed"
 }
 
 preflight_hailo() {
     if [[ ! -e /dev/hailo0 ]]; then
-        error "/dev/hailo0 not found. Install Hailo driver: sudo apt install dkms hailo-h10-all"
+        error "/dev/hailo0 not found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.3.0): install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/"
         exit 1
     fi
 

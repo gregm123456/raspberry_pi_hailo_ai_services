@@ -557,8 +557,17 @@ class DepthHandler(ModelHandler):
 
         bindings = model.configured_model.create_bindings()
 
-        # Set input buffer
-        input_buffer = np.empty(model.infer_model.input().shape, dtype=np.uint8)
+        # HailoRT 5.3.0 reports input shapes in HWC order (H, W, C).
+        # The caller may send CHW (3, H, W) or NCHW (1, 3, H, W) — transpose if needed.
+        expected_shape = tuple(model.infer_model.input().shape)
+        if input_tensor.shape != expected_shape:
+            if input_tensor.ndim == 4:
+                input_tensor = input_tensor[0]  # drop batch dim -> (C, H, W) or (H, W, C)
+            if input_tensor.ndim == 3 and input_tensor.shape != expected_shape:
+                # Assume CHW -> HWC
+                input_tensor = np.transpose(input_tensor, (1, 2, 0))
+
+        input_buffer = np.empty(expected_shape, dtype=np.uint8)
         input_buffer[:] = input_tensor
         bindings.input().set_buffer(input_buffer)
 
