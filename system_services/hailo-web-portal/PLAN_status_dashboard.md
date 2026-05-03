@@ -28,7 +28,7 @@ The device status JSON contains:
   "device": {
     "device_id": "0001:01:00.0",
     "architecture": "HAILO10H",
-    "fw_version": "5.1.1 (release,app)",
+    "fw_version": "5.3.0 (release,app)",
     "temperature_celsius": 51.3
   },
   "networks": {

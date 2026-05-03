@@ -34,13 +34,36 @@ After updating your Raspberry Pi with the latest Raspberry Pi software and firmw
 
 ### AI HAT+ 2 Installation
 
-**Note:** The AI HAT+ 2 requires the `hailo-h10-all` package (different from AI Kit/AI HAT+ which use `hailo-all`). These packages cannot co-exist.
+**Note:** The AI HAT+ 2 originally used the `hailo-h10-all` package from the Raspberry Pi apt repository. As of HailoRT 5.3.0, the preferred approach is the generic `hailort` package family installed directly from Hailo's dev-public server (the Pi apt repo caps at 5.1.1).
 
-To install the required dependencies for the AI HAT+ 2, open the Raspberry Pi Terminal and run the following commands:
+### Option A: Install 5.1.1 from Raspberry Pi apt repository (simplest, but older)
 
 ```bash
 $ sudo apt install dkms
 $ sudo apt install hailo-h10-all
+```
+
+### Option B: Install 5.3.0 from Hailo dev-public (recommended — latest)
+
+Download and install the three .deb packages for aarch64:
+
+```bash
+# Download packages
+wget https://dev-public.hailo.ai/2026_04/Hailo10/hailort-pcie-driver_5.3.0_all.deb
+wget https://dev-public.hailo.ai/2026_04/Hailo10/hailort_5.3.0_arm64.deb
+wget https://dev-public.hailo.ai/2026_04/Hailo10/hailo-tappas-core_5.3.0_arm64.deb
+
+# Install in order (driver first)
+sudo apt install ./hailort-pcie-driver_5.3.0_all.deb
+sudo apt install ./hailort_5.3.0_arm64.deb
+sudo apt install ./hailo-tappas-core_5.3.0_arm64.deb
+```
+
+The Python wheel for service venvs:
+```bash
+# Per isolated venv — run once per service venv that needs hailo_platform
+sudo /opt/hailo-{service}/venv/bin/python3 -m pip install \
+  https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl
 ```
 
 ---
@@ -67,7 +90,7 @@ If you see output similar to the following, you've successfully installed the NP
 Executing on device: 0001:01:00.0
 Identifying board
 Control Protocol Version: 2
-Firmware Version: 5.1.1 (release,app)
+Firmware Version: 5.3.0 (release,app)
 Logger Version: 0
 Device Architecture: HAILO10H
 ```
@@ -112,5 +135,5 @@ For detailed instructions on running models, refer to the official Raspberry Pi 
 ### Key Points for AI HAT+ 2
 
 - **PCIe Gen 3.0**: Unlike the AI Kit, the AI HAT+ 2 automatically applies PCIe Gen 3.0 settings, so no manual configuration is needed
-- **Package Name**: Always use `hailo-h10-all` for AI HAT+ 2 (not `hailo-all`)
+- **Package Name (5.1.1)**: The Pi apt repo installs `hailo-h10-all`; for 5.3.0 use the `hailort` package family from dev-public.hailo.ai (see installation options above)
 - **Verification**: The `hailortcli fw-control identify` command confirms successful driver installation and NPU detection

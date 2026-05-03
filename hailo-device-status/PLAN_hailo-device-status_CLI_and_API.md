@@ -91,7 +91,7 @@ Build a custom device status utility using HailoRT Python API to expose Hailo-10
 
 **Hardware Validation:**
 - Tested on Raspberry Pi 5 with Hailo-10H NPU
-- Device ID: 0001:01:00.0, Architecture: HAILO10H, Firmware: 5.1.1 (release,app)
+- Device ID: 0001:01:00.0, Architecture: HAILO10H, Firmware: 5.3.0 (release,app)
 - Temperature monitoring functional (~53°C typical idle)
 - No interference with concurrent inferences
 
@@ -104,7 +104,7 @@ Found: 1 device(s)
 Device 0:
   Device ID:     0001:01:00.0
   Architecture:  HAILO10H
-  Firmware:      5.1.1 (release,app)
+  Firmware:      5.3.0 (release,app)
   Temperature:   53.5°C
 
 $ python3 hailo_device_status.py health

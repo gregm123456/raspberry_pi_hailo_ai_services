@@ -355,9 +355,9 @@ From `imagenet_labels.hpp`:
 - **Raspberry Pi 5:** Supported platform for all listed models
 
 ### Software Stack
-- **HailoRT:** 5.1.1+ (Venice) or 5.2.0+ (Cordoba)
-- **TAPPAS Core:** 5.1.0 or 5.2.0 (for GStreamer pipelines)
-- **GenAI Model Zoo:** 5.1.1 or 5.2.0 (for VLMs)
+- **HailoRT:** 5.1.1+ (Venice), 5.2.0+ (Cordoba), or 5.3.0+
+- **TAPPAS Core:** 5.1.0, 5.2.0, or 5.3.0 (for GStreamer pipelines)
+- **GenAI Model Zoo:** 5.1.1, 5.2.0, or 5.3.0 (for VLMs)
 - **Python:** 3.10+
 - **Dependencies:** OpenCV, PyTorch (for some features), NumPy
 
@@ -534,7 +534,7 @@ Use CLIP with GUI:
 
 **Document Version:** 1.0  
 **Date Created:** January 31, 2026  
-**HailoRT Compatibility:** 5.1.1 – 5.2.0  
+**HailoRT Compatibility:** 5.1.1 – 5.3.0  
 **Hailo Devices:** Hailo-8, Hailo-8L, Hailo-10H  
 **Platforms:** Raspberry Pi 5, x86_64 Linux
 

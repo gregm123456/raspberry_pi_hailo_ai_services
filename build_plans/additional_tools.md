@@ -831,8 +831,8 @@ Some capabilities can run simultaneously on Hailo-10H:
 ## Software Dependencies
 
 ### Common Requirements
-- **HailoRT:** 4.23.0 (Hailo-8/8L) or 5.1.1+ (Hailo-10H)
-- **TAPPAS Core:** 5.1.0 or 5.2.0
+- **HailoRT:** 4.23.0 (Hailo-8/8L) or 5.1.1+ (Hailo-10H); 5.3.0 tested and supported
+- **TAPPAS Core:** 5.1.0, 5.2.0, or 5.3.0
 - **OpenCV:** 4.5+
 - **Python:** 3.10+
 - **NumPy:** 1.20+
@@ -873,8 +873,8 @@ Some capabilities can run simultaneously on Hailo-10H:
 
 **Document Version:** 1.0  
 **Date Created:** January 31, 2026  
-**HailoRT Compatibility:** 4.23.0 (Hailo-8/8L), 5.1.1 - 5.2.0 (Hailo-10H)  
-**TAPPAS Core:** 5.1.0 - 5.2.0  
+**HailoRT Compatibility:** 4.23.0 (Hailo-8/8L), 5.1.1 - 5.3.0 (Hailo-10H)  
+**TAPPAS Core:** 5.1.0 - 5.3.0  
 **Hailo Devices:** Hailo-8, Hailo-8L, Hailo-10H  
 **Platforms:** Raspberry Pi 5, x86_64 Linux
 

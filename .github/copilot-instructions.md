@@ -67,10 +67,19 @@ Each service wraps a specific AI capability as a managed systemd service. The **
 
 Before deploying any service, the Hailo-10H kernel driver must be installed:
 ```bash
+# Option A: 5.1.1 from Raspberry Pi apt repo (simple, but older)
 sudo apt install dkms hailo-h10-all
+
+# Option B: 5.3.0 from Hailo dev-public (recommended — latest)
+# Download from https://dev-public.hailo.ai/2026_04/Hailo10/
+# hailort-pcie-driver_5.3.0_all.deb, hailort_5.3.0_arm64.deb, hailo-tappas-core_5.3.0_arm64.deb
+sudo apt install ./hailort-pcie-driver_5.3.0_all.deb ./hailort_5.3.0_arm64.deb ./hailo-tappas-core_5.3.0_arm64.deb
+
 sudo reboot
 hailortcli fw-control identify  # Verify installation
 ```
+
+**Note:** The Pi apt repo (`archive.raspberrypi.com/debian trixie`) only provides `hailo-h10-all` 5.1.1. For 5.3.0, use the direct .deb method above. The Python wheel (`hailort-5.3.0-cp313-cp313-linux_aarch64.whl`) must also be installed into each service venv that needs `hailo_platform`.
 
 All AI HAT+ 2 specifics (device naming, PCIe settings) are documented in `reference_documentation/system_setup.md`.
 
