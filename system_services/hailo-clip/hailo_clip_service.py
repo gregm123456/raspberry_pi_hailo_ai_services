@@ -26,29 +26,34 @@ from flask import Flask, jsonify, request
 from PIL import Image
 
 # Hailo Imports
+HAILO_IMPORT_ERROR: Optional[str] = None
 try:
     # We use some utilities from hailo-apps
     from hailo_apps.python.pipeline_apps.clip import clip_text_utils
     from hailo_apps.python.core.common.core import resolve_hef_path
     from hailo_apps.python.core.common.defines import CLIP_PIPELINE
     HAILO_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     HAILO_AVAILABLE = False
+    HAILO_IMPORT_ERROR = str(e)
 
 DEVICE_CLIENT_AVAILABLE = False
 HailoDeviceClient = None
+DEVICE_CLIENT_IMPORT_ERROR: Optional[str] = None
 
 def _try_import_device_client() -> None:
     global DEVICE_CLIENT_AVAILABLE
     global HailoDeviceClient
+    global DEVICE_CLIENT_IMPORT_ERROR
 
     try:
         from device_client import HailoDeviceClient as Client
         HailoDeviceClient = Client
         DEVICE_CLIENT_AVAILABLE = True
+        DEVICE_CLIENT_IMPORT_ERROR = None
         return
-    except Exception:
-        pass
+    except Exception as e:
+        DEVICE_CLIENT_IMPORT_ERROR = str(e)
 
     candidate_paths = [
         "/opt/hailo-device-manager",
@@ -62,8 +67,11 @@ def _try_import_device_client() -> None:
         from device_client import HailoDeviceClient as Client
         HailoDeviceClient = Client
         DEVICE_CLIENT_AVAILABLE = True
+        DEVICE_CLIENT_IMPORT_ERROR = None
     except Exception:
         DEVICE_CLIENT_AVAILABLE = False
+        if DEVICE_CLIENT_IMPORT_ERROR is None:
+            DEVICE_CLIENT_IMPORT_ERROR = "device_client import failed"
 
 
 _try_import_device_client()
@@ -162,9 +170,18 @@ class CLIPModel:
     def load(self) -> bool:
         """Load CLIP model using HailoRT and hailo-apps utilities."""
         if not HAILO_AVAILABLE or not DEVICE_CLIENT_AVAILABLE:
-            logger.error("Hailo dependencies or device client not installed. Falling back to mock.")
-            self._use_mock_model()
-            return True
+            details: List[str] = []
+            if not HAILO_AVAILABLE and HAILO_IMPORT_ERROR:
+                details.append(f"hailo import error: {HAILO_IMPORT_ERROR}")
+            if not DEVICE_CLIENT_AVAILABLE and DEVICE_CLIENT_IMPORT_ERROR:
+                details.append(f"device client import error: {DEVICE_CLIENT_IMPORT_ERROR}")
+            logger.error(
+                "Hailo dependencies or device client not installed. "
+                "Real CLIP model is required; refusing to start."
+            )
+            if details:
+                logger.error("Import diagnostics: %s", " | ".join(details))
+            return False
 
         with self.lock:
             if self.is_loaded:
@@ -206,17 +223,14 @@ class CLIPModel:
                 
             except Exception as e:
                 logger.error(f"Failed to load CLIP model: {e}")
+                if "HAILO_RESOURCE_EXHAUSTED" in str(e):
+                    logger.error(
+                        "NPU resources are exhausted. Stop other Hailo services and restart "
+                        "hailo-device-manager before starting hailo-clip."
+                    )
                 traceback.print_exc()
-                logger.warning("Falling back to mock model")
-                self._use_mock_model()
+                logger.error("Real CLIP model is required; refusing to start")
                 return False
-    
-    def _use_mock_model(self) -> None:
-        """Use a mock model for development/testing."""
-        self.image_configured_model = None
-        self.use_device_manager = False
-        self.is_loaded = True
-        logger.warning("Using mock CLIP model (set HAILO_CLIP_MOCK=false to disable)")
 
     def _clip_model_params(self) -> Dict[str, Any]:
         return {
@@ -311,12 +325,8 @@ class CLIPModel:
             return None, []
 
         if self.image_configured_model is None or not self.use_device_manager:
-            image_embedding = np.random.randn(self.embedding_dim).astype(np.float32)
-            text_embeddings = [
-                np.random.randn(self.embedding_dim).astype(np.float32)
-                for _ in prompts
-            ]
-            return image_embedding, text_embeddings
+            logger.error("Device manager-backed CLIP model is not available")
+            return None, []
 
         try:
             with self.lock:
@@ -362,7 +372,8 @@ class CLIPModel:
                 image_array = np.array(image, dtype=np.uint8)
 
                 if self.image_configured_model is None or not self.use_device_manager:
-                    return np.random.randn(self.embedding_dim).astype(np.float32)
+                    logger.error("Device manager-backed CLIP model is not available")
+                    return None
 
                 async def _run() -> np.ndarray:
                     async with HailoDeviceClient() as client:
@@ -392,7 +403,8 @@ class CLIPModel:
         try:
             with self.lock:
                 if self.image_configured_model is None or not self.use_device_manager:
-                    return np.random.randn(self.embedding_dim).astype(np.float32)
+                    logger.error("Device manager-backed CLIP model is not available")
+                    return None
 
                 async def _run() -> np.ndarray:
                     async with HailoDeviceClient() as client:
@@ -428,6 +440,7 @@ def create_app(config: CLIPServiceConfig) -> Flask:
             "service": "hailo-clip",
             "model_loaded": clip_model.is_loaded,
             "model": clip_model.model_name,
+            "runtime_mode": "real" if clip_model.use_device_manager else "degraded",
         }), 200
     
     @app.route("/v1/classify", methods=["POST"])

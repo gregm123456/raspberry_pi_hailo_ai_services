@@ -228,6 +228,44 @@ curl -X POST http://localhost:5000/v1/classify \
 
 ---
 
+### Service Fails with HAILO_RESOURCE_EXHAUSTED
+
+#### Symptom
+```bash
+sudo journalctl -u hailo-clip.service -n 100 --no-pager
+# RuntimeError: Device manager error: Failed to load model:
+# libhailort failed with error: 81 (HAILO_RESOURCE_EXHAUSTED)
+```
+
+This means the NPU memory/network slots are already occupied by other services.
+
+**Fix sequence:**
+
+1. Check what is currently loaded:
+   ```bash
+   curl -s http://127.0.0.1:5099/v1/device/status | python3 -m json.tool
+   ```
+
+2. Stop other Hailo services temporarily:
+   ```bash
+   sudo systemctl stop hailo-depth hailo-florence hailo-ocr hailo-piper hailo-pose hailo-vision hailo-whisper hailo-web-portal
+   ```
+
+3. Reset device manager model state:
+   ```bash
+   sudo systemctl restart hailo-device-manager.service
+   ```
+
+4. Start CLIP and verify:
+   ```bash
+   sudo systemctl restart hailo-clip.service
+   curl -s http://localhost:5000/health
+   ```
+
+If you need concurrent operation, reduce concurrently loaded services or add explicit orchestration to unload models before starting CLIP.
+
+---
+
 ### Port Conflict
 
 #### Symptom

@@ -17,6 +17,8 @@ SERVICE_DIR="/opt/hailo-clip"
 HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
 HAILO_APPS_VENDOR_DIR="${SERVICE_DIR}/vendor"
 HAILO_APPS_VENDOR_PATH="${HAILO_APPS_VENDOR_DIR}/hailo-apps"
+DEVICE_CLIENT_SRC="${SCRIPT_DIR}/../../device_manager/device_client.py"
+HAILORT_WHEEL_URL_DEFAULT="https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl"
 
 usage() {
     cat <<'EOF'
@@ -95,6 +97,13 @@ preflight_clip_models() {
     fi
 }
 
+preflight_device_client() {
+    if [[ ! -f "${DEVICE_CLIENT_SRC}" ]]; then
+        error "device_client.py not found at ${DEVICE_CLIENT_SRC}. Cannot deploy real CLIP inference without device manager client."
+        exit 1
+    fi
+}
+
 vendor_hailo_apps() {
     log "Vendoring hailo-apps into ${HAILO_APPS_VENDOR_PATH}"
     rm -rf "${HAILO_APPS_VENDOR_PATH}"
@@ -132,6 +141,11 @@ install_requirements() {
     log "Installing Python requirements in venv"
     "${SERVICE_DIR}/venv/bin/pip" install --upgrade pip
     "${SERVICE_DIR}/venv/bin/pip" install -r "${SERVICE_DIR}/requirements.txt"
+
+    local hailort_wheel_url
+    hailort_wheel_url="${HAILORT_WHEEL_URL:-${HAILORT_WHEEL_URL_DEFAULT}}"
+    log "Installing HailoRT wheel into venv"
+    "${SERVICE_DIR}/venv/bin/pip" install --no-cache-dir "${hailort_wheel_url}"
 
     log "Installing vendored hailo-apps into venv"
     "${SERVICE_DIR}/venv/bin/pip" install "${HAILO_APPS_VENDOR_PATH}"
@@ -208,6 +222,11 @@ create_state_directories() {
         cp "${SCRIPT_DIR}/requirements.txt" "${SERVICE_DIR}/"
         chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/requirements.txt"
     fi
+
+    # Copy device manager client used by hailo_clip_service.py at runtime.
+    cp "${DEVICE_CLIENT_SRC}" "${SERVICE_DIR}/device_client.py"
+    chown "${SERVICE_USER}:${SERVICE_GROUP}" "${SERVICE_DIR}/device_client.py"
+    chmod 0644 "${SERVICE_DIR}/device_client.py"
 }
 
 install_config() {
@@ -322,6 +341,7 @@ main() {
     require_root
     preflight_hailo
     preflight_clip_models
+    preflight_device_client
 
     create_user_group
     configure_device_permissions
