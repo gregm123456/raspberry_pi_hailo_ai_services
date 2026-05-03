@@ -237,32 +237,29 @@ sudo journalctl -u hailo-clip.service -n 100 --no-pager
 # libhailort failed with error: 81 (HAILO_RESOURCE_EXHAUSTED)
 ```
 
-This means the NPU memory/network slots are already occupied by other services.
+This means the NPU VRAM was full. The device manager (as of the LRU eviction implementation)
+will automatically evict the least-recently-used model and retry — so in normal operation this
+error should self-resolve. If it still appears, the most likely cause is that `hailo-vision`
+(Qwen2-VL-2B, ~4–5 GB VRAM) is loaded alongside several other services, leaving no room even
+after evictions.
 
-**Fix sequence:**
+**Check what is loaded:**
+```bash
+curl -s http://127.0.0.1:5099/v1/device/status | python3 -m json.tool
+# Look at "networks" and "total_lru_evictions"
+```
 
-1. Check what is currently loaded:
-   ```bash
-   curl -s http://127.0.0.1:5099/v1/device/status | python3 -m json.tool
-   ```
+**If hailo-vision is loaded and CLIP still can't fit**, choose a different service subset. The
+Qwen2-VL-2B model alone consumes ~50–65% of VRAM. See
+`reference_documentation/vram_budget.md` for compatible service combinations.
 
-2. Stop other Hailo services temporarily:
-   ```bash
-   sudo systemctl stop hailo-depth hailo-florence hailo-ocr hailo-piper hailo-pose hailo-vision hailo-whisper hailo-web-portal
-   ```
-
-3. Reset device manager model state:
-   ```bash
-   sudo systemctl restart hailo-device-manager.service
-   ```
-
-4. Start CLIP and verify:
-   ```bash
-   sudo systemctl restart hailo-clip.service
-   curl -s http://localhost:5000/health
-   ```
-
-If you need concurrent operation, reduce concurrently loaded services or add explicit orchestration to unload models before starting CLIP.
+```bash
+# Example: run CLIP + audio stack without the VLM
+sudo systemctl stop hailo-vision
+sudo systemctl restart hailo-device-manager.service
+sudo systemctl restart hailo-clip.service
+curl -s http://localhost:5000/health
+```
 
 ---
 

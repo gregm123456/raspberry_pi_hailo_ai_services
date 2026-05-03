@@ -73,6 +73,8 @@ except ImportError:
 DEFAULT_SOCKET_PATH = "/run/hailo/device.sock"
 DEFAULT_SOCKET_MODE = 0o660
 DEFAULT_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+# Maximum LRU evictions attempted before giving up on a load_model request.
+DEFAULT_MAX_EVICTIONS = 3
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -728,6 +730,10 @@ class HailoDeviceManager:
             "HAILO_DEVICE_SOCKET_MODE", DEFAULT_SOCKET_MODE
         )
         self.socket_group = os.environ.get("HAILO_DEVICE_SOCKET_GROUP")
+        self.max_evictions = _get_env_int(
+            "HAILO_DEVICE_MAX_EVICTIONS", DEFAULT_MAX_EVICTIONS
+        )
+        self._total_evictions: int = 0
         self._server: Optional[asyncio.AbstractServer] = None
         self._http_server: Optional[http.server.ThreadingHTTPServer] = None
         self._http_thread: Optional[threading.Thread] = None
@@ -901,6 +907,7 @@ class HailoDeviceManager:
             "uptime_seconds": time.time() - self.start_time,
             "socket_path": self.socket_path,
             "queue_depth": self._queue_depth,
+            "total_lru_evictions": self._total_evictions,
         }
 
     def _device_status_payload(self) -> Dict[str, Any]:
@@ -949,6 +956,7 @@ class HailoDeviceManager:
             "networks": networks,
             "uptime_seconds": time.time() - self.start_time,
             "queue_depth": self._queue_depth,
+            "total_lru_evictions": self._total_evictions,
         }
 
     def _start_http_server(self) -> None:
@@ -1017,6 +1025,37 @@ class HailoDeviceManager:
     def _model_key(self, model_type: str, model_path: str) -> str:
         return f"{model_type}:{model_path}"
 
+    @staticmethod
+    def _is_resource_exhausted(exc: Exception) -> bool:
+        """Return True if the exception indicates Hailo VRAM is full."""
+        return "HAILO_RESOURCE_EXHAUSTED" in str(exc)
+
+    def _evict_lru(self) -> Optional[str]:
+        """Unload the least-recently-used model from VRAM.
+
+        Returns the evicted model key, or None if the registry is empty.
+        """
+        if not self.loaded_models:
+            return None
+
+        lru_key = min(self.loaded_models, key=lambda k: self.loaded_models[k].last_used)
+        entry = self.loaded_models.pop(lru_key)
+
+        try:
+            handler = self._get_handler(entry.model_type)
+            handler.unload(entry.model)
+            logger.info(
+                "LRU eviction: unloaded %s (%s), last used %.1fs ago",
+                entry.model_path,
+                entry.model_type,
+                time.time() - entry.last_used,
+            )
+        except Exception as e:
+            logger.warning("LRU eviction unload error (ignored): %s", e)
+
+        self._total_evictions += 1
+        return lru_key
+
     def _load_model(self, request: Dict[str, Any]) -> Dict[str, Any]:
         model_path = request.get("model_path")
         model_type = request.get("model_type", "vlm")
@@ -1043,32 +1082,54 @@ class HailoDeviceManager:
                 }
             return response
 
-        try:
-            handler = self._get_handler(model_type)
-            logger.info("Loading model: %s (%s)", model_path, model_type)
-            model = handler.load(self.vdevice, model_path, model_params)
-            now = time.time()
-            self.loaded_models[key] = ModelEntry(
-                model_type=model_type,
-                model_path=model_path,
-                model=model,
-                loaded_at=now,
-                last_used=now,
-            )
-            response = {
-                "status": "ok",
-                "model_path": model_path,
-                "model_type": model_type,
-                "message": "Model loaded",
-            }
-            if model_type == "ocr":
-                response["model_info"] = {
-                    "detection_input_shape": list(model.detection_input_shape),
+        evictions = 0
+        while True:
+            try:
+                handler = self._get_handler(model_type)
+                logger.info("Loading model: %s (%s)", model_path, model_type)
+                model = handler.load(self.vdevice, model_path, model_params)
+                now = time.time()
+                self.loaded_models[key] = ModelEntry(
+                    model_type=model_type,
+                    model_path=model_path,
+                    model=model,
+                    loaded_at=now,
+                    last_used=now,
+                )
+                response = {
+                    "status": "ok",
+                    "model_path": model_path,
+                    "model_type": model_type,
+                    "message": "Model loaded",
                 }
-            return response
-        except Exception as e:
-            logger.error("Failed to load model %s: %s", model_path, e)
-            return {"error": f"Failed to load model: {e}"}
+                if model_type == "ocr":
+                    response["model_info"] = {
+                        "detection_input_shape": list(model.detection_input_shape),
+                    }
+                return response
+            except Exception as e:
+                if self._is_resource_exhausted(e) and evictions < self.max_evictions:
+                    evicted = self._evict_lru()
+                    if evicted is None:
+                        logger.error(
+                            "RESOURCE_EXHAUSTED loading %s but no models to evict",
+                            model_path,
+                        )
+                        return {
+                            "error": f"RESOURCE_EXHAUSTED and no models available to evict: {e}"
+                        }
+                    evictions += 1
+                    logger.warning(
+                        "RESOURCE_EXHAUSTED loading %s — evicted LRU model %s (attempt %d/%d)",
+                        model_path,
+                        evicted,
+                        evictions,
+                        self.max_evictions,
+                    )
+                    # loop and retry
+                else:
+                    logger.error("Failed to load model %s: %s", model_path, e)
+                    return {"error": f"Failed to load model: {e}"}
 
     def _infer(self, request: Dict[str, Any]) -> Dict[str, Any]:
         model_path = request.get("model_path")

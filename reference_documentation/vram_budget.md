@@ -167,8 +167,9 @@ sudo systemctl restart hailo-device-manager
 sudo systemctl start hailo-clip   # or whichever service was failing
 ```
 
-**Long-term fix** — implement LRU eviction in the device manager so it automatically evicts the
-least-recently-used model when VRAM is full. See [Device_Manager_LRU_eviction_plan.md](../Device_Manager_LRU_eviction_plan.md).
+**Long-term fix** — LRU eviction is implemented in the device manager. When VRAM is full,
+it automatically evicts the least-recently-used model and retries the load. No manual service
+stopping is needed. See [Device_Manager_LRU_eviction_plan.md](../Device_Manager_LRU_eviction_plan.md).
 
 ---
 

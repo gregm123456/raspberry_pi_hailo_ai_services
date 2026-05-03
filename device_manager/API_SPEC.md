@@ -71,6 +71,7 @@ Response (200 OK):
   "uptime_seconds": 123.4,
   "socket_path": "/run/hailo/device.sock",
   "queue_depth": 0,
+  "total_lru_evictions": 0,
   "request_id": "..."
 }
 ```
@@ -102,6 +103,7 @@ Response (200 OK):
   "uptime_seconds": 123.4,
   "socket_path": "/run/hailo/device.sock",
   "queue_depth": 1,
+  "total_lru_evictions": 0,
   "request_id": "..."
 }
 
@@ -142,6 +144,7 @@ Response (200 OK):
   },
   "uptime_seconds": 123.4,
   "queue_depth": 0,
+  "total_lru_evictions": 0,
   "request_id": "..."
 }
 ```
