@@ -43,6 +43,7 @@ processing_utils.save_pil_to_cache = _patched_save_pil_to_cache
 
 from device_status_monitor import DeviceStatusMonitor
 from status_formatters import (
+    create_ram_overview_html,
     format_device_header,
     format_networks_table,
     create_temperature_gauge_html,
@@ -129,6 +130,9 @@ def build_gradio_interface() -> gr.Blocks:
             with gr.Column(scale=1):
                 gr.HTML("")
 
+        # RAM usage and per-model memory split (estimated)
+        ram_overview = gr.HTML(label="NPU Memory")
+
         # Networks Table
         with gr.Accordion("Loaded Networks", open=True):
             networks_table = gr.Dataframe(
@@ -156,20 +160,28 @@ def build_gradio_interface() -> gr.Blocks:
             
             queue_depth = status_data.get("queue_depth", 0)
             queue_gauge_html = create_queue_gauge_html(queue_depth)
+
+            ram_overview_html = create_ram_overview_html(status_data)
             
-            return (subtitle_text, temp_gauge_html, networks, queue_gauge_html)
+            return (
+                subtitle_text,
+                temp_gauge_html,
+                networks,
+                queue_gauge_html,
+                ram_overview_html,
+            )
 
         refresh_status_btn.click(
             fn=update_status,
-            outputs=[device_info_md, temp_gauge, networks_table, queue_info],
+            outputs=[device_info_md, temp_gauge, networks_table, queue_info, ram_overview],
         )
         gr.Timer(3.0).tick(
             fn=update_status,
-            outputs=[device_info_md, temp_gauge, networks_table, queue_info],
+            outputs=[device_info_md, temp_gauge, networks_table, queue_info, ram_overview],
         )
         demo.load(
             fn=update_status,
-            outputs=[device_info_md, temp_gauge, networks_table, queue_info],
+            outputs=[device_info_md, temp_gauge, networks_table, queue_info, ram_overview],
         )
 
         with gr.Tabs():
