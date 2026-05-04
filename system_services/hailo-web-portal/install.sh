@@ -29,9 +29,13 @@ cat <<EOF | sudo tee "${SUDOERS_FILE}" >/dev/null
 hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl start hailo-*
 hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop hailo-*
 hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hailo-*
+hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl enable hailo-*
+hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl disable hailo-*
 hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl start hailo-device-manager
 hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop hailo-device-manager
 hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hailo-device-manager
+hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl enable hailo-device-manager
+hailo ALL=(ALL) NOPASSWD: /usr/bin/systemctl disable hailo-device-manager
 EOF
 sudo chmod 0440 "${SUDOERS_FILE}"
 

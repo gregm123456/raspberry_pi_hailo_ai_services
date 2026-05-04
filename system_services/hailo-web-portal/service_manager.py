@@ -34,6 +34,12 @@ class ServiceManager:
         )
         return {service: status for service, status in results}
 
+    async def get_startup_status(self) -> Dict[str, str]:
+        results = await asyncio.gather(
+            *[self._is_enabled(service) for service in self.SERVICE_NAMES]
+        )
+        return {service: status for service, status in results}
+
     async def start_service(self, service_name: str) -> Dict[str, str]:
         if service_name == "hailo-ollama":
             conflicts = await self._check_ollama_conflicts()
@@ -52,6 +58,12 @@ class ServiceManager:
     async def restart_service(self, service_name: str) -> Dict[str, str]:
         return await self._run_systemctl(["restart", service_name])
 
+    async def enable_service(self, service_name: str) -> Dict[str, str]:
+        return await self._run_systemctl(["enable", service_name])
+
+    async def disable_service(self, service_name: str) -> Dict[str, str]:
+        return await self._run_systemctl(["disable", service_name])
+
     async def _is_active(self, service_name: str) -> List[str]:
         result = await asyncio.to_thread(
             subprocess.run,
@@ -64,6 +76,20 @@ class ServiceManager:
         if result.stdout.strip() == "inactive":
             return [service_name, "stopped"]
         return [service_name, "error"]
+
+    async def _is_enabled(self, service_name: str) -> List[str]:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["systemctl", "is-enabled", service_name],
+            capture_output=True,
+            text=True,
+        )
+        status = result.stdout.strip() or result.stderr.strip()
+        if result.returncode == 0:
+            return [service_name, "enabled"]
+        if status in {"disabled", "static", "indirect", "masked", "generated"}:
+            return [service_name, status]
+        return [service_name, "unknown"]
 
     async def _run_systemctl(self, args: List[str]) -> Dict[str, str]:
         try:

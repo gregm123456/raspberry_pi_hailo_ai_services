@@ -33,6 +33,13 @@ Open the portal in a browser:
 http://localhost:7860
 ```
 
+In the Service Control tab, you can:
+- Toggle Running directly per service row (start/stop)
+- Toggle Auto-start directly per service row (systemd enable/disable)
+- Trigger one-time restart per service row via the Restart checkbox
+
+Auto-start governs whether the service starts at boot. Since these services attempt model loading during startup, this also controls which services attempt startup model auto-loading after reboot.
+
 Common commands:
 
 ```bash

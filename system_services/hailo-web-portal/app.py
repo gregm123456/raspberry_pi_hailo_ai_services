@@ -86,6 +86,11 @@ async def get_services_status() -> Dict[str, str]:
     return await service_mgr.get_status()
 
 
+@app.get("/api/services/startup-status")
+async def get_services_startup_status() -> Dict[str, str]:
+    return await service_mgr.get_startup_status()
+
+
 @app.post("/api/services/start/{service_name}")
 async def start_service(service_name: str) -> Dict[str, str]:
     return await service_mgr.start_service(service_name)
@@ -99,6 +104,16 @@ async def stop_service(service_name: str) -> Dict[str, str]:
 @app.post("/api/services/restart/{service_name}")
 async def restart_service(service_name: str) -> Dict[str, str]:
     return await service_mgr.restart_service(service_name)
+
+
+@app.post("/api/services/enable/{service_name}")
+async def enable_service(service_name: str) -> Dict[str, str]:
+    return await service_mgr.enable_service(service_name)
+
+
+@app.post("/api/services/disable/{service_name}")
+async def disable_service(service_name: str) -> Dict[str, str]:
+    return await service_mgr.disable_service(service_name)
 
 
 def build_gradio_interface() -> gr.Blocks:
@@ -806,67 +821,156 @@ def build_gradio_interface() -> gr.Blocks:
 
             with gr.TabItem("Service Control"):
                 gr.Markdown("### System Service Management")
-                services_status = gr.Dataframe(
-                    headers=["Service", "Status"], value=[], interactive=False
+                gr.Markdown(
+                    "Auto-start controls whether a service starts at boot. "
+                    "Services that start at boot will also attempt their startup model load path."
                 )
+                gr.Markdown(
+                    "Toggle Running or Auto-start directly in the table. "
+                    "Set Restart to true for a one-time restart; it will reset automatically after execution."
+                )
+                services_status = gr.Dataframe(
+                    headers=["Service", "Running", "Auto-start", "Restart"],
+                    datatype=["str", "bool", "bool", "bool"],
+                    value=[],
+                    interactive=True,
+                )
+                service_table_state = gr.State([])
                 with gr.Row():
                     refresh_services_btn = gr.Button("Refresh Status")
                     start_all_btn = gr.Button("Start All (except Ollama)")
                     stop_all_btn = gr.Button("Stop All")
 
-                with gr.Row():
-                    service_select = gr.Dropdown(
-                        choices=service_mgr.SERVICE_NAMES, label="Service"
-                    )
-                    start_btn = gr.Button("Start")
-                    stop_btn = gr.Button("Stop")
-                    restart_btn = gr.Button("Restart")
-
                 service_action_result = gr.Textbox(label="Action Result", interactive=False)
 
-                async def refresh_services() -> List[List[str]]:
-                    status = await service_mgr.get_status()
-                    return [[name, stat] for name, stat in status.items()]
+                def _to_bool(value: Any) -> bool:
+                    if isinstance(value, bool):
+                        return value
+                    if isinstance(value, (int, float)):
+                        return bool(value)
+                    if isinstance(value, str):
+                        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+                    return False
 
-                async def start_all() -> str:
+                async def refresh_services() -> List[List[Any]]:
+                    status = await service_mgr.get_status()
+                    startup = await service_mgr.get_startup_status()
+                    return [
+                        [
+                            name,
+                            status.get(name, "unknown") == "running",
+                            startup.get(name, "unknown") == "enabled",
+                            False,
+                        ]
+                        for name in service_mgr.SERVICE_NAMES
+                    ]
+
+                async def refresh_services_for_ui() -> Tuple[List[List[Any]], List[List[Any]]]:
+                    rows = await refresh_services()
+                    return rows, rows
+
+                def _normalize_rows(rows: Any) -> List[List[Any]]:
+                    if rows is None:
+                        return []
+                    # Gradio may pass a pandas DataFrame for editable Dataframe values.
+                    if hasattr(rows, "values") and hasattr(rows, "columns"):
+                        try:
+                            return rows.values.tolist()
+                        except Exception:
+                            return []
+                    if isinstance(rows, list):
+                        return rows
+                    return []
+
+                async def apply_service_table_changes(
+                    current_rows: Any,
+                    previous_rows: Any,
+                ) -> Tuple[List[List[Any]], str, List[List[Any]]]:
+                    normalized_current = _normalize_rows(current_rows)
+                    normalized_previous = _normalize_rows(previous_rows)
+                    previous_map: Dict[str, List[Any]] = {}
+                    for row in normalized_previous:
+                        if isinstance(row, list) and row:
+                            previous_map[str(row[0])] = row
+
+                    messages: List[str] = []
+                    for row in normalized_current:
+                        if not isinstance(row, list) or not row:
+                            continue
+                        name = str(row[0]).strip()
+                        if name not in service_mgr.SERVICE_NAMES:
+                            continue
+
+                        prev = previous_map.get(name, [name, False, False, False])
+                        running_now = _to_bool(row[1] if len(row) > 1 else False)
+                        running_prev = _to_bool(prev[1] if len(prev) > 1 else False)
+                        autostart_now = _to_bool(row[2] if len(row) > 2 else False)
+                        autostart_prev = _to_bool(prev[2] if len(prev) > 2 else False)
+                        restart_now = _to_bool(row[3] if len(row) > 3 else False)
+
+                        if running_now != running_prev:
+                            result = (
+                                await service_mgr.start_service(name)
+                                if running_now
+                                else await service_mgr.stop_service(name)
+                            )
+                            outcome = result.get("message", result.get("status", "ok"))
+                            messages.append(f"{name}: {outcome}")
+
+                        if autostart_now != autostart_prev:
+                            result = (
+                                await service_mgr.enable_service(name)
+                                if autostart_now
+                                else await service_mgr.disable_service(name)
+                            )
+                            outcome = result.get("message", result.get("status", "ok"))
+                            messages.append(f"{name} auto-start: {outcome}")
+
+                        if restart_now:
+                            result = await service_mgr.restart_service(name)
+                            outcome = result.get("message", result.get("status", "ok"))
+                            messages.append(f"{name} restart: {outcome}")
+
+                    refreshed_rows = await refresh_services()
+                    summary = " | ".join(messages) if messages else "No changes applied."
+                    return refreshed_rows, summary, refreshed_rows
+
+                async def start_all() -> Tuple[List[List[Any]], str, List[List[Any]]]:
                     for service in service_mgr.SERVICE_NAMES:
                         if service in {"hailo-ollama", "hailo-device-manager"}:
                             continue
                         await service_mgr.start_service(service)
-                    return "Start requested for all services (excluding ollama)."
+                    rows = await refresh_services()
+                    return rows, "Start requested for all services (excluding ollama).", rows
 
-                async def stop_all() -> str:
+                async def stop_all() -> Tuple[List[List[Any]], str, List[List[Any]]]:
                     for service in service_mgr.SERVICE_NAMES:
                         if service == "hailo-device-manager":
                             continue
                         await service_mgr.stop_service(service)
-                    return "Stop requested for all services."
+                    rows = await refresh_services()
+                    return rows, "Stop requested for all services.", rows
 
-                async def start_service(name: str) -> str:
-                    if not name:
-                        return "Select a service."
-                    result = await service_mgr.start_service(name)
-                    return result.get("message", result.get("status", "ok"))
-
-                async def stop_service(name: str) -> str:
-                    if not name:
-                        return "Select a service."
-                    result = await service_mgr.stop_service(name)
-                    return result.get("message", result.get("status", "ok"))
-
-                async def restart_service(name: str) -> str:
-                    if not name:
-                        return "Select a service."
-                    result = await service_mgr.restart_service(name)
-                    return result.get("message", result.get("status", "ok"))
-
-                refresh_services_btn.click(fn=refresh_services, outputs=[services_status])
-                start_all_btn.click(fn=start_all, outputs=[service_action_result])
-                stop_all_btn.click(fn=stop_all, outputs=[service_action_result])
-                start_btn.click(fn=start_service, inputs=[service_select], outputs=[service_action_result])
-                stop_btn.click(fn=stop_service, inputs=[service_select], outputs=[service_action_result])
-                restart_btn.click(
-                    fn=restart_service, inputs=[service_select], outputs=[service_action_result]
+                refresh_services_btn.click(
+                    fn=refresh_services_for_ui,
+                    outputs=[services_status, service_table_state],
+                )
+                start_all_btn.click(
+                    fn=start_all,
+                    outputs=[services_status, service_action_result, service_table_state],
+                )
+                stop_all_btn.click(
+                    fn=stop_all,
+                    outputs=[services_status, service_action_result, service_table_state],
+                )
+                services_status.change(
+                    fn=apply_service_table_changes,
+                    inputs=[services_status, service_table_state],
+                    outputs=[services_status, service_action_result, service_table_state],
+                )
+                demo.load(
+                    fn=refresh_services_for_ui,
+                    outputs=[services_status, service_table_state],
                 )
 
     return demo

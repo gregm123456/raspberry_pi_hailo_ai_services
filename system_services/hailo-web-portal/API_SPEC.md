@@ -33,6 +33,20 @@ Returns systemd status for known services.
 }
 ```
 
+## GET /api/services/startup-status
+
+Returns systemd boot startup policy for known services.
+
+**Response (200 OK):**
+```json
+{
+  "hailo-device-manager": "enabled",
+  "hailo-clip": "enabled",
+  "hailo-vision": "disabled",
+  "hailo-ollama": "disabled"
+}
+```
+
 ## POST /api/services/start/{service_name}
 
 Start a systemd service.
@@ -68,7 +82,25 @@ Restart a systemd service.
 {"status": "ok"}
 ```
 
+## POST /api/services/enable/{service_name}
+
+Enable service startup at boot.
+
+**Response (200 OK):**
+```json
+{"status": "ok"}
+```
+
+## POST /api/services/disable/{service_name}
+
+Disable service startup at boot.
+
+**Response (200 OK):**
+```json
+{"status": "ok"}
+```
+
 ## Notes
 
 - The portal only binds to `127.0.0.1` by default.
-- Service control relies on passwordless `sudo systemctl` permissions for the `hailo` user.
+- Service control relies on passwordless `sudo systemctl` permissions for the `hailo` user (start/stop/restart/enable/disable).
