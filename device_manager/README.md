@@ -317,6 +317,44 @@ The Hailo-10H NPU has 8 GB of dedicated VRAM, separate from the Raspberry Pi's C
 sudo journalctl -u hailo-device-manager.service -n 50 --no-pager
 ```
 
+#### If logs say "No Hailo devices found" right after a system/kernel upgrade
+
+This can happen when Raspberry Pi kernel packages are updated but the Hailo DKMS
+module is not yet built (or no longer compatible) for the new running kernel.
+
+Quick checks:
+```bash
+uname -r
+dkms status | grep hailo
+lsmod | grep -E 'hailo|vdevice'
+hailortcli scan
+```
+
+If `hailortcli scan` reports no devices while `lspci` still shows Hailo hardware,
+the issue is usually DKMS/kernel drift.
+
+For kernel `6.18.x` with `hailo1x_pci 5.3.0`, a local compatibility fix that worked here:
+```bash
+# Patch DKMS source once on this machine
+sudo sed -i '/#include "monitor.h"/a #include <linux\/timer.h>' /usr/src/hailo1x_pci-5.3.0/linux/vdma/monitor.c
+sudo sed -i 's/del_timer_sync(/timer_delete_sync(/g' /usr/src/hailo1x_pci-5.3.0/linux/vdma/monitor.c
+
+# Rebuild for current kernel and load module
+sudo dkms install -m hailo1x_pci -v 5.3.0 -k "$(uname -r)" --force
+sudo modprobe hailo1x_pci
+
+# Verify and restart manager
+hailortcli scan
+sudo systemctl reset-failed hailo-device-manager
+sudo systemctl restart hailo-device-manager
+```
+
+Do we need to do this after every apt upgrade?
+- Not always.
+- Only when the kernel changes and the installed Hailo DKMS source cannot build
+  cleanly for that kernel.
+- After kernel updates, always run the quick checks above before assuming service-code issues.
+
 ### Service can't connect to device manager
 - Verify socket exists: `ls -l /run/hailo/device.sock`
 - Check socket permissions: `stat /run/hailo/device.sock`

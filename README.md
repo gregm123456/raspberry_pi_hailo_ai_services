@@ -267,6 +267,46 @@ curl http://127.0.0.1:5099/v1/device/status
 sudo systemctl restart hailo-device-manager
 ```
 
+### Port 7860 expectations
+- Port `7860` is the Gradio web portal (`hailo-web-portal`), not the device manager.
+- Device manager endpoints are:
+    - Unix socket: `/run/hailo/device.sock`
+    - Local HTTP status: `http://127.0.0.1:5099/v1/device/status`
+
+If 7860 is not listening:
+```bash
+sudo systemctl status hailo-web-portal
+sudo systemctl start hailo-web-portal
+sudo ss -ltnp | grep ':7860'
+```
+
+### After Raspberry Pi package updates: Hailo DKMS/kernel drift
+
+If `hailo-device-manager` suddenly fails with `No Hailo devices found` after
+`apt upgrade`, it is often a driver/kernel mismatch rather than service code.
+
+Quick check sequence:
+```bash
+uname -r
+dkms status | grep hailo
+lsmod | grep -E 'hailo|vdevice'
+hailortcli scan
+```
+
+If needed (observed on kernel `6.18.x` with `hailo1x_pci 5.3.0`), patch and rebuild DKMS:
+```bash
+sudo sed -i '/#include "monitor.h"/a #include <linux\/timer.h>' /usr/src/hailo1x_pci-5.3.0/linux/vdma/monitor.c
+sudo sed -i 's/del_timer_sync(/timer_delete_sync(/g' /usr/src/hailo1x_pci-5.3.0/linux/vdma/monitor.c
+sudo dkms install -m hailo1x_pci -v 5.3.0 -k "$(uname -r)" --force
+sudo modprobe hailo1x_pci
+sudo systemctl restart hailo-device-manager
+```
+
+Do this every update?
+- Not necessarily.
+- Only when a new kernel is installed and DKMS does not produce a working module
+    for that kernel.
+
 ### Service won't start
 ```bash
 # Check logs

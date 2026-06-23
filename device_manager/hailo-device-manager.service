@@ -10,6 +10,7 @@ Before=hailo-vision.service hailo-ollama.service hailo-face.service hailo-ocr.se
 Type=simple
 User=hailo-device-mgr
 Group=hailo-device-mgr
+WorkingDirectory=/var/lib/hailo-device-manager
 
 # Service executable
 ExecStart=/opt/hailo-device-manager/venv/bin/python3 /opt/hailo-device-manager/hailo_device_manager.py
