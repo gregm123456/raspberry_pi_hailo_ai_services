@@ -143,20 +143,27 @@ ERROR - Failed to load face models
 ERROR - Model file not found
 ```
 
-### Check 1: Mock Mode Active
+### Check 1: Verify Device Manager and public HEFs
 ```bash
-sudo journalctl -u hailo-face | grep -i "mock"
+sudo systemctl status hailo-device-manager
+id hailo-face
+stat -c '%A %U:%G %n' /run/hailo/device.sock
+ls -lh /var/lib/hailo-face/models/
 ```
 
-**If using mock mode:**
-This is expected behavior when hailo-apps integration is not yet complete. The service runs with simulated inference.
+The `hailo-face` service account must be able to access the socket through
+`hailo-device-mgr`. Both `scrfd_2.5g_384_640.hef` and `mivolo_d1.hef` must be
+present in the models directory.
 
-**To verify mock mode:**
+**Check the Hailo-10H target and HailoRT version:**
 ```bash
-curl http://localhost:5002/health | python3 -m json.tool
+hailortcli parse-hef /var/lib/hailo-face/models/scrfd_2.5g_384_640.hef
+hailortcli parse-hef /var/lib/hailo-face/models/mivolo_d1.hef
 ```
 
-Look for `"model_loaded": true` (even in mock mode).
+The public artifacts should report compiler 5.5.0 and HAILO10H compatibility.
+`/v1/attributes` does not fall back to mock results. The older identity
+endpoints still contain prototype mock inference and are not verified.
 
 ### Check 2: hailo-apps Installation
 ```bash

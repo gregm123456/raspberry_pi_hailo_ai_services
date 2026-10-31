@@ -40,11 +40,23 @@ require_command() {
     fi
 }
 
+find_hailo_device_node() {
+    if [[ -e /dev/h1x-0 ]]; then
+        printf '%s\n' /dev/h1x-0
+    elif [[ -e /dev/hailo0 ]]; then
+        printf '%s\n' /dev/hailo0
+    else
+        return 1
+    fi
+}
+
 preflight_hailo() {
-    if [[ ! -e /dev/hailo0 ]]; then
-        error "/dev/hailo0 not found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.3.0): install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/"
+    local device_node
+    if ! device_node="$(find_hailo_device_node)"; then
+        error "Neither /dev/h1x-0 (Hailo-10H) nor /dev/hailo0 found. Install the Hailo driver."
         exit 1
     fi
+    log "Using Hailo device node ${device_node}"
 
     if command -v hailortcli >/dev/null 2>&1; then
         if ! hailortcli fw-control identify >/dev/null 2>&1; then
@@ -84,8 +96,8 @@ create_user_group() {
     fi
 }
 
-# HailoRT Python wheel — must be installed per-venv (not available as a system deb on 5.3.0)
-HAILORT_WHEEL_URL="https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl"
+# HailoRT Python wheel — installed per-venv from the public Hailo-10H release.
+HAILORT_WHEEL_URL="https://dev-public.hailo.ai/2026_10/Hailo10/hailort-5.5.0-cp313-cp313-linux_aarch64.whl"
 
 create_venv() {
     log "Creating Python virtual environment with system site packages"
@@ -109,20 +121,16 @@ copy_scripts() {
 }
 
 configure_device_permissions() {
-    local device_group
-    device_group=$(stat -c '%G' /dev/hailo0)
+    local device_node device_group
+    device_node="$(find_hailo_device_node)"
+    device_group="$(stat -c '%G' "${device_node}")"
 
-    if [[ -z "${device_group}" ]]; then
-        error "Could not determine group for /dev/hailo0"
+    if [[ -z "${device_group}" ]] || ! getent group "${device_group}" >/dev/null; then
+        error "Could not determine the device group for ${device_node}."
         exit 1
     fi
 
-    if ! getent group "${device_group}" >/dev/null; then
-        error "Device group '${device_group}' not found. Check Hailo installation/udev rules."
-        exit 1
-    fi
-
-    log "Adding ${SERVICE_USER} to ${device_group} group"
+    log "Adding ${SERVICE_USER} to device group ${device_group}"
     usermod -aG "${device_group}" "${SERVICE_USER}"
 }
 
@@ -143,15 +151,17 @@ create_state_directories() {
 }
 
 write_env_file() {
-    local device_group
-    device_group=$(stat -c '%G' /dev/hailo0)
+    if ! getent group "${SERVICE_GROUP}" >/dev/null; then
+        error "Socket group ${SERVICE_GROUP} is missing."
+        exit 1
+    fi
 
     log "Writing ${ENV_FILE}"
     cat >"${ENV_FILE}" <<EOF
 # Optional overrides for hailo-device-manager
 HAILO_DEVICE_SOCKET=/run/hailo/device.sock
 HAILO_DEVICE_SOCKET_MODE=0660
-HAILO_DEVICE_SOCKET_GROUP=${device_group}
+HAILO_DEVICE_SOCKET_GROUP=${SERVICE_GROUP}
 EOF
 
     chmod 0644 "${ENV_FILE}"

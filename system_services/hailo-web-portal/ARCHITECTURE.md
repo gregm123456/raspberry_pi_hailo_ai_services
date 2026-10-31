@@ -43,7 +43,7 @@ Provide a unified, full-featured UI for testing all Hailo AI system services wit
 
 ## Ollama and Device-Manager Incompatibility
 
-`hailo-ollama` is **not supported in this portal** because it requires exclusive device ownership, while all other services (vision, clip, whisper, ocr, pose, depth, piper) route through the centralized `device_manager` for serialized device access. These two models are architecturally incompatible:
+`hailo-ollama` is **not supported in this portal** because it requires exclusive device ownership, while all other services (vision, clip, whisper, audio, face, super-resolution, ocr, pose, depth, piper) route through the centralized `device_manager` for serialized device access. These two models are architecturally incompatible:
 
 - **hailo-ollama:** Creates its own VDevice, expects exclusive access to `/dev/hailo0`
 - **device_manager:** Centralizes VDevice ownership, serializes requests from all client services

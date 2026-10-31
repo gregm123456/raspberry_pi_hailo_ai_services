@@ -530,6 +530,220 @@ class DepthRuntime:
     input_shape: tuple
 
 
+class AudioClassificationRuntime:
+    """HailoRT model state for quantized audio-classification networks."""
+
+    def __init__(self, infer_model: Any, configured_model: Any):
+        self.infer_model = infer_model
+        self.configured_model = configured_model
+        self.input_shape = tuple(infer_model.input().shape)
+        self.output_shape = tuple(infer_model.output().shape)
+
+
+class AudioClassificationHandler(ModelHandler):
+    model_type = "audio_classification"
+
+    def load(
+        self, vdevice: hailo_platform.VDevice, model_path: str, model_params: Dict[str, Any]
+    ) -> AudioClassificationRuntime:
+        if not Path(model_path).is_file():
+            raise ValueError(f"Audio classification HEF not found: {model_path}")
+        infer_model = vdevice.create_infer_model(str(model_path))
+        infer_model.input().set_format_type(FormatType.FLOAT32)
+        infer_model.output().set_format_type(FormatType.FLOAT32)
+        configured_model = infer_model.configure()
+        return AudioClassificationRuntime(infer_model, configured_model)
+
+    def infer(self, model: AudioClassificationRuntime, input_data: Any) -> Any:
+        input_tensor = decode_tensor(input_data.get("input"))
+        if input_tensor.shape != model.input_shape:
+            raise ValueError(
+                f"Audio input shape {input_tensor.shape} does not match HEF shape {model.input_shape}"
+            )
+        bindings = model.configured_model.create_bindings()
+        input_buffer = np.asarray(input_tensor, dtype=np.float32)
+        output_buffer = np.empty(model.output_shape, dtype=np.float32)
+        bindings.input().set_buffer(input_buffer)
+        bindings.output().set_buffer(output_buffer)
+        model.configured_model.wait_for_async_ready(timeout_ms=1000)
+        job = model.configured_model.run_async([bindings])
+        job.wait(timeout_ms=10000)
+        return encode_tensor(output_buffer.copy())
+
+    def unload(self, model: AudioClassificationRuntime) -> None:
+        for obj in (model.configured_model, model.infer_model):
+            if hasattr(obj, "release"):
+                obj.release()
+
+
+@dataclass
+class TensorRuntime:
+    infer_model: Any
+    configured_model: Any
+    input_shape: tuple
+    input_names: list[str]
+    input_shapes: Dict[str, tuple]
+    input_dtype: Any
+    output_names: list[str]
+    output_shapes: Dict[str, tuple]
+    output_dtype: Any
+
+
+class TensorHandler(ModelHandler):
+    """Run a tensor HEF and return all output tensors without postprocessing."""
+
+    model_type = "tensor"
+    _FORMATS = {
+        "UINT8": (FormatType.UINT8, np.uint8),
+        "UINT16": (FormatType.UINT16, np.uint16),
+        "FLOAT32": (FormatType.FLOAT32, np.float32),
+    }
+
+    def load(
+        self, vdevice: hailo_platform.VDevice, model_path: str, model_params: Dict[str, Any]
+    ) -> TensorRuntime:
+        if not Path(model_path).is_file():
+            raise ValueError(f"Model HEF not found: {model_path}")
+
+        input_name = str(model_params.get("input_format", "UINT8")).upper()
+        output_name = str(model_params.get("output_format", "FLOAT32")).upper()
+        if input_name not in self._FORMATS or output_name not in self._FORMATS:
+            raise ValueError("tensor format must be UINT8, UINT16, or FLOAT32")
+        input_format, input_dtype = self._FORMATS[input_name]
+        output_format, output_dtype = self._FORMATS[output_name]
+
+        infer_model = vdevice.create_infer_model(str(model_path))
+        input_names = []
+        input_shapes = {}
+        inputs_attr = getattr(infer_model, "inputs", None)
+        inputs = inputs_attr() if callable(inputs_attr) else inputs_attr
+        if inputs is not None:
+            for input_info in inputs:
+                input_info.set_format_type(input_format)
+                name = str(input_info.name)
+                input_names.append(name)
+                input_shapes[name] = tuple(input_info.shape)
+        elif hasattr(infer_model, "input_names"):
+            for name in infer_model.input_names:
+                input_info = infer_model.input(name)
+                input_info.set_format_type(input_format)
+                input_names.append(str(name))
+                input_shapes[str(name)] = tuple(input_info.shape)
+        else:
+            input_info = infer_model.input()
+            input_info.set_format_type(input_format)
+            name = str(getattr(input_info, "name", "input"))
+            input_names.append(name)
+            input_shapes[name] = tuple(input_info.shape)
+        if not input_names:
+            raise ValueError("Tensor HEF has no inputs")
+
+        output_names = []
+        outputs_attr = getattr(infer_model, "outputs", None)
+        outputs = outputs_attr() if callable(outputs_attr) else outputs_attr
+        if outputs is not None:
+            for output in outputs:
+                output.set_format_type(output_format)
+                output_names.append(output.name)
+        elif hasattr(infer_model, "output_names"):
+            for name in infer_model.output_names:
+                output = infer_model.output(name)
+                output.set_format_type(output_format)
+                output_names.append(name)
+        else:
+            output = infer_model.output()
+            output.set_format_type(output_format)
+            output_names.append(output.name if hasattr(output, "name") else "output")
+
+        configured_model = infer_model.configure()
+        if len(output_names) == 1:
+            output_shapes = {
+                output_names[0]: tuple(infer_model.output().shape)
+            }
+        else:
+            output_shapes = {
+                name: tuple(infer_model.output(name).shape) for name in output_names
+            }
+        return TensorRuntime(
+            infer_model=infer_model,
+            configured_model=configured_model,
+            input_shape=input_shapes[input_names[0]],
+            input_names=input_names,
+            input_shapes=input_shapes,
+            input_dtype=input_dtype,
+            output_names=output_names,
+            output_shapes=output_shapes,
+            output_dtype=output_dtype,
+        )
+
+    def infer(self, model: TensorRuntime, input_data: Any) -> Any:
+        if not isinstance(input_data, dict):
+            raise ValueError("Tensor input_data must be an object")
+        if "input" in input_data and "inputs" in input_data:
+            raise ValueError("Provide either 'input' or 'inputs', not both")
+        if "inputs" in input_data:
+            input_payloads = input_data["inputs"]
+            if not isinstance(input_payloads, dict):
+                raise ValueError("'inputs' must be an object keyed by HEF input name")
+        elif len(model.input_names) == 1 and "input" in input_data:
+            input_payloads = {model.input_names[0]: input_data["input"]}
+        else:
+            raise ValueError(
+                f"Expected named inputs: {', '.join(model.input_names)}"
+            )
+        if set(input_payloads) != set(model.input_names):
+            raise ValueError(
+                f"Expected named inputs: {', '.join(model.input_names)}"
+            )
+
+        input_tensors = {}
+        for name in model.input_names:
+            payload = input_payloads[name]
+            if not isinstance(payload, dict):
+                raise ValueError(f"Tensor payload for {name} must be an object")
+            input_tensor = decode_tensor(payload)
+            expected_shape = model.input_shapes[name]
+            if input_tensor.shape != expected_shape:
+                message = (
+                    f"Input shape {input_tensor.shape} does not match HEF shape "
+                    f"{expected_shape}"
+                )
+                if len(model.input_names) > 1:
+                    message = f"Input {name}: {message}"
+                raise ValueError(message)
+            input_tensors[name] = np.asarray(input_tensor, dtype=model.input_dtype)
+
+        bindings = model.configured_model.create_bindings()
+        for name, input_buffer in input_tensors.items():
+            input_binding = bindings.input() if len(model.input_names) == 1 else bindings.input(name)
+            input_binding.set_buffer(input_buffer)
+        output_buffers = {}
+        for name in model.output_names:
+            output_buffer = np.empty(model.output_shapes[name], dtype=model.output_dtype)
+            output_binding = (
+                bindings.output()
+                if len(model.output_names) == 1
+                else bindings.output(name)
+            )
+            output_binding.set_buffer(output_buffer)
+            output_buffers[name] = output_buffer
+
+        model.configured_model.wait_for_async_ready(timeout_ms=1000)
+        job = model.configured_model.run_async([bindings])
+        job.wait(timeout_ms=10000)
+        return {
+            "outputs": {
+                name: encode_tensor(buffer.copy())
+                for name, buffer in output_buffers.items()
+            }
+        }
+
+    def unload(self, model: TensorRuntime) -> None:
+        for obj in (model.configured_model, model.infer_model):
+            if hasattr(obj, "release"):
+                obj.release()
+
+
 class DepthHandler(ModelHandler):
     model_type = "depth"
 
@@ -559,7 +773,7 @@ class DepthHandler(ModelHandler):
 
         bindings = model.configured_model.create_bindings()
 
-        # HailoRT 5.3.0 reports input shapes in HWC order (H, W, C).
+        # Hailo-10H reports input shapes in HWC order (H, W, C).
         # The caller may send CHW (3, H, W) or NCHW (1, 3, H, W) — transpose if needed.
         expected_shape = tuple(model.infer_model.input().shape)
         if input_tensor.shape != expected_shape:
@@ -750,8 +964,10 @@ class HailoDeviceManager:
             ClipHandler.model_type: ClipHandler(),
             WhisperHandler.model_type: WhisperHandler(),
             OcrHandler.model_type: OcrHandler(),
+            AudioClassificationHandler.model_type: AudioClassificationHandler(),
+            TensorHandler.model_type: TensorHandler(),
             DepthHandler.model_type: DepthHandler(),
-                PoseHandler.model_type: PoseHandler(),
+            PoseHandler.model_type: PoseHandler(),
         }
         self._queue_depth = 0
 

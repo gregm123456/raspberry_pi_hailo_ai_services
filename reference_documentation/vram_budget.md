@@ -175,7 +175,7 @@ stopping is needed. See [Device_Manager_LRU_eviction_plan.md](../Device_Manager_
 
 ## Notes on Measurement Gaps
 
-- **No per-model VRAM API**: Hailo SDK (5.3.0) does not expose a query for per-model VRAM
+- **No per-model VRAM API**: The Hailo SDK used by this project does not expose a query for per-model VRAM
   consumption. The estimates above are derived from HEF disk size and model architecture knowledge.
 - **Runtime overhead**: The Hailo driver reserves additional VRAM for DMA buffers, pipeline scratch
   space, and the VDevice context itself. This overhead is not reflected in the estimates above.

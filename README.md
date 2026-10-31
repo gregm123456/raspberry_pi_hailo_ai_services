@@ -15,7 +15,8 @@ This project transforms the [Raspberry Pi AI HAT+ 2 (Hailo-10H)](https://www.ras
 - **Raspberry Pi 5** (4GB+ RAM recommended)
 - **Raspberry Pi AI HAT+ 2** with Hailo-10H NPU (13 TOPS)
 - **64-bit Raspberry Pi OS** (Trixie - Debian 13)
-- **Hailo driver and runtime** installed (`hailo-all` package)[^h10-package-conflict]
+- **Hailo driver and runtime** installed according to the
+  [Hailo-10H setup guide](reference_documentation/system_setup.md)
 
 ## The Problem This Solves
 
@@ -73,6 +74,7 @@ Manufacturer-provided Hailo applications repackaged as persistent systemd servic
 | **hailo-ocr** | Text detection + recognition | ✅ Production | 11436 | Custom |
 | **hailo-pose** | Human pose estimation (YOLOv8) | ✅ Production | 11440 | Custom |
 | **hailo-depth** | Monocular depth estimation | ✅ Production | 11439 | Custom |
+| **hailo-tracking** | STARK single-target and ByteTrack-style pedestrian video tracking | 🧪 Experimental | 11443 | Custom |
 | **hailo-piper** | Text-to-speech (Piper TTS) | ✅ Production | 5003 | OpenAI TTS API |
 | **hailo-ollama** | LLM inference (Qwen2.5-1.5B) | ⚠️ Production | 11434 | Ollama API |
 
@@ -91,9 +93,11 @@ The following services are in active development or awaiting additional work:
 
 - **hailo-face** — Face detection and embedding comparison
 - **hailo-scrfd** — Specialized face detection (SCRFD)
+- **hailo-super-resolution** — SPANF x4 tiled image upscaling (deployed and live-tested)
 - **hailo-florence** — Vision understanding and captioning (installer complete; HEF files require Hailo-10H recompilation)
 
-These services have installer scripts and partial implementations in [`system_services/`](system_services/) but their adaptations to the required structure for this project are incomplete.
+Some experimental services still have incomplete adaptations; each service's
+README documents its current state.
 
 📁 [Browse System Services](system_services/)
 
@@ -102,11 +106,11 @@ These services have installer scripts and partial implementations in [`system_se
 **Unified Web UI for testing, monitoring, and managing all AI services**
 
 A comprehensive web interface providing:
-- **Service test tabs** — Full API coverage for all 8 services with file uploads
+- **Service test tabs** — API coverage for all 11 integrated services with file uploads
 - **Device status monitor** — Real-time temperature, memory, and loaded models
 - **Service control** — Start/stop/restart services via systemctl
 - **Parameter tuning** — All optional parameters exposed (sliders, dropdowns, etc.)
-- **Response visualization** — JSON results, audio playback, depth maps, pose keypoints
+- **Response visualization** — JSON results, tracked videos, audio playback, depth maps, pose keypoints, and 4× image upscaling
 
 Access at `http://localhost:7860` after installation.
 
@@ -119,14 +123,13 @@ Access at `http://localhost:7860` after installation.
 ```bash
 sudo apt update
 sudo apt full-upgrade
-sudo apt install dkms hailo-all
 sudo reboot
 
 # Verify installation
 hailortcli fw-control identify
 ```
 
-[^h10-package-conflict]: On this Hailo-10H setup, the breakage is caused by the `hailo_platform` Python module being absent from a service's isolated venv. `hailo-device-manager.service` fails with `ModuleNotFoundError: No module named 'hailo_platform'`, so it never creates `/run/hailo/device.sock`; that, in turn, makes `hailo-vision`, `hailo-whisper`, `hailo-depth`, `hailo-ocr`, and `hailo-pose` fall into restart loops with `Device manager socket not found at /run/hailo/device.sock`. The fix is to install the hailort wheel directly into the affected service's venv: `sudo /opt/hailo-{service}/venv/bin/python3 -m pip install https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl`. After patching, restart `hailo-device-manager` then restart any dependent services. **Note:** As of HailoRT 5.3.0 the system uses the generic `hailort` package family; the old `hailo-h10-all` / `python3-h10-hailort` packages from the Pi apt repo are no longer present and `sudo apt install python3-h10-hailort` will fail.
+[^h10-package-conflict]: Do not assume the generic `hailo-all` package supplies the correct Hailo-10H stack. Follow the version-specific instructions in the [Hailo-10H setup guide](reference_documentation/system_setup.md). Services that directly import `hailo_platform` need the matching HailoRT wheel in their own isolated venv; do not install it into system Python, use `--system-site-packages`, or bypass PEP 668. Device-manager clients should not install HailoRT themselves.
 
 ### 2. Clone This Repository
 
@@ -233,7 +236,7 @@ This repository includes several official Hailo repositories as submodules:
 | [**hailo_model_zoo_genai**](https://github.com/hailo-ai/hailo_model_zoo_genai) | Generative AI models | [MIT](https://github.com/hailo-ai/hailo_model_zoo_genai/blob/8eb58a6ff6719fee9528c4e057b800438f2405cd/LICENSE) |
 | [**hailort**](https://github.com/hailo-ai/hailort) | Runtime libraries and tools | [MIT + LGPL 2.1](https://github.com/hailo-ai/hailort/blob/41a720b9fedb56a4ee9ea39506afecf3f9ace2eb/README.md#licenses) |
 
-**Note:** The submodules are included for reference and building custom services. Most users can install pre-built packages via `apt install hailo-all`.[^h10-package-conflict]
+**Note:** The submodules are included for reference and building custom services. For Hailo-10H driver/runtime installation, follow the version-specific [system setup guide](reference_documentation/system_setup.md).[^h10-package-conflict]
 
 ## Community & Discussion
 
@@ -293,7 +296,9 @@ lsmod | grep -E 'hailo|vdevice'
 hailortcli scan
 ```
 
-If needed (observed on kernel `6.18.x` with `hailo1x_pci 5.3.0`), patch and rebuild DKMS:
+The following workaround is historical and specific to kernel `6.18.x` with
+`hailo1x_pci 5.3.0`; do not apply it to a different driver version without
+confirming the same build failure:
 ```bash
 sudo sed -i '/#include "monitor.h"/a #include <linux\/timer.h>' /usr/src/hailo1x_pci-5.3.0/linux/vdma/monitor.c
 sudo sed -i 's/del_timer_sync(/timer_delete_sync(/g' /usr/src/hailo1x_pci-5.3.0/linux/vdma/monitor.c

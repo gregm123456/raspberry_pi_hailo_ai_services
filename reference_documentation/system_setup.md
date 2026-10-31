@@ -34,7 +34,7 @@ After updating your Raspberry Pi with the latest Raspberry Pi software and firmw
 
 ### AI HAT+ 2 Installation
 
-**Note:** The AI HAT+ 2 originally used the `hailo-h10-all` package from the Raspberry Pi apt repository. As of HailoRT 5.3.0, the preferred approach is the generic `hailort` package family installed directly from Hailo's dev-public server (the Pi apt repo caps at 5.1.1).
+**Note:** The AI HAT+ 2 originally used the `hailo-h10-all` package from the Raspberry Pi apt repository. For HailoRT 5.5.0, use the generic `hailort` package family installed directly from Hailo's dev-public server; the Pi apt repo may offer older versions.
 
 ### Option A: Install 5.1.1 from Raspberry Pi apt repository (simplest, but older)
 
@@ -43,28 +43,37 @@ $ sudo apt install dkms
 $ sudo apt install hailo-h10-all
 ```
 
-### Option B: Install 5.3.0 from Hailo dev-public (recommended — latest)
+### Option B: Install 5.5.0 from Hailo dev-public (recommended)
 
 Download and install the three .deb packages for aarch64:
 
 ```bash
 # Download packages
-wget https://dev-public.hailo.ai/2026_04/Hailo10/hailort-pcie-driver_5.3.0_all.deb
-wget https://dev-public.hailo.ai/2026_04/Hailo10/hailort_5.3.0_arm64.deb
-wget https://dev-public.hailo.ai/2026_04/Hailo10/hailo-tappas-core_5.3.0_arm64.deb
+wget https://dev-public.hailo.ai/2026_10/Hailo10/hailort-pcie-driver_5.5.0_all.deb
+wget https://dev-public.hailo.ai/2026_10/Hailo10/hailort_5.5.0_arm64.deb
+wget https://dev-public.hailo.ai/2026_10/Hailo10/hailo-tappas-core_5.5.0_arm64.deb
 
 # Install in order (driver first)
-sudo apt install ./hailort-pcie-driver_5.3.0_all.deb
-sudo apt install ./hailort_5.3.0_arm64.deb
-sudo apt install ./hailo-tappas-core_5.3.0_arm64.deb
+sudo apt install ./hailort-pcie-driver_5.5.0_all.deb
+sudo apt install ./hailort_5.5.0_arm64.deb
+sudo apt install ./hailo-tappas-core_5.5.0_arm64.deb
 ```
 
-The Python wheel for service venvs:
+Install the matching Python binding only in an isolated service or project
+virtual environment. Do not use global `pip`, `--system-site-packages`, or
+`--break-system-packages`; Raspberry Pi OS manages system Python with apt, and
+its `python3-hailort` package may lag behind the installed runtime.
+
 ```bash
-# Per isolated venv — run once per service venv that needs hailo_platform
-sudo /opt/hailo-{service}/venv/bin/python3 -m pip install \
-  https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl
+# Example for a service that directly imports hailo_platform
+sudo -u hailo-service python3 -m venv /opt/hailo-service/venv
+sudo -u hailo-service /opt/hailo-service/venv/bin/python -m pip install \
+  https://dev-public.hailo.ai/2026_10/Hailo10/hailort-5.5.0-cp313-cp313-linux_aarch64.whl
 ```
+
+Only services that directly use `hailo_platform` need this wheel. Lightweight
+clients that send inference requests through `hailo-device-manager` should not
+install their own HailoRT binding.
 
 ---
 
@@ -90,7 +99,7 @@ If you see output similar to the following, you've successfully installed the NP
 Executing on device: 0001:01:00.0
 Identifying board
 Control Protocol Version: 2
-Firmware Version: 5.3.0 (release,app)
+Firmware Version: 5.5.0 (release,app)
 Logger Version: 0
 Device Architecture: HAILO10H
 ```
@@ -102,7 +111,7 @@ Device Architecture: HAILO10H
 Additionally, you can run `dmesg | grep -i hailo` to check the kernel logs, which is expected to output something like the following:
 
 ```
-[    3.049657] hailo: Init module. driver version 4.17.0
+[    3.049657] hailo: Init module. driver version 5.5.0
 [    3.051983] hailo 0000:01:00.0: Probing on: 1e60:2864...
 [    3.051989] hailo 0000:01:00.0: Probing: Allocate memory for device extension, 11600
 [    3.052006] hailo 0000:01:00.0: enabling device (0000 -> 0002)
@@ -135,5 +144,5 @@ For detailed instructions on running models, refer to the official Raspberry Pi 
 ### Key Points for AI HAT+ 2
 
 - **PCIe Gen 3.0**: Unlike the AI Kit, the AI HAT+ 2 automatically applies PCIe Gen 3.0 settings, so no manual configuration is needed
-- **Package Name (5.1.1)**: The Pi apt repo installs `hailo-h10-all`; for 5.3.0 use the `hailort` package family from dev-public.hailo.ai (see installation options above)
+- **Package Name (5.1.1)**: The Pi apt repo may install `hailo-h10-all`; for 5.5.0 use the `hailort` package family from dev-public.hailo.ai (see installation options above)
 - **Verification**: The `hailortcli fw-control identify` command confirms successful driver installation and NPU detection

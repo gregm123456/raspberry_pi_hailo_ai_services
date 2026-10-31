@@ -14,6 +14,9 @@ CONFIG_FILE="${CONFIG_DIR}/${SERVICE_NAME}.yaml"
 STATE_DIR="/var/lib/${SERVICE_NAME}"
 LOG_DIR="/var/log/${SERVICE_NAME}"
 DB_DIR="${STATE_DIR}/database"
+MODEL_DIR="${STATE_DIR}/models"
+SCRFD_HEF_URL="https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.5.0/hailo10h/scrfd_2.5g_384_640.hef"
+MIVOLO_HEF_URL="https://hailo-model-zoo.s3.eu-west-2.amazonaws.com/ModelZoo/Compiled/v5.5.0/hailo10h/mivolo_d1.hef"
 
 # Colors for output
 RED='\033[0;31m'
@@ -42,11 +45,15 @@ check_root() {
 
 check_prerequisites() {
     info "Checking prerequisites..."
+
+    command -v curl >/dev/null 2>&1 || error "curl is required to download public Hailo-10H HEFs"
+    getent group hailo-device-mgr >/dev/null || \
+        error "Install hailo-device-manager before hailo-face"
     
     # Check for Hailo driver
     if ! lsmod | grep -q hailo; then
         warn "Hailo kernel module not loaded"
-        warn "Run: sudo apt install dkms hailo-h10-all && sudo reboot  (5.1.1 from Pi repo)  OR install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/ for 5.3.0"
+        warn "Run: sudo apt install dkms hailo-h10-all && sudo reboot  (5.1.1 from Pi repo)  OR install direct .deb from https://dev-public.hailo.ai/2026_10/Hailo10/ for 5.5.0"
     fi
     
     # Check for Python
@@ -54,18 +61,8 @@ check_prerequisites() {
         error "Python 3 not found. Install with: sudo apt install python3"
     fi
     
-    # Check for required Python packages
-    local missing_packages=()
-    for pkg in flask pyyaml opencv-python pillow numpy; do
-        if ! python3 -c "import ${pkg//-/_}" 2>/dev/null; then
-            missing_packages+=("$pkg")
-        fi
-    done
-    
-    if [[ ${#missing_packages[@]} -gt 0 ]]; then
-        info "Installing missing Python packages: ${missing_packages[*]}"
-        python3 -m pip install --break-system-packages "${missing_packages[@]}" || \
-            error "Failed to install Python packages"
+    if ! python3 -c "import flask, yaml, cv2, PIL, numpy" 2>/dev/null; then
+        error "Install Python dependencies with apt: python3-flask python3-yaml python3-opencv python3-pil python3-numpy"
     fi
     
     info "Prerequisites OK"
@@ -82,7 +79,26 @@ create_user() {
     fi
     
     # Add to video group for Hailo device access
-    usermod -a -G video "${SERVICE_USER}" || warn "Failed to add user to video group"
+    usermod -a -G video,hailo-device-mgr "${SERVICE_USER}" || \
+        error "Failed to add service user to required device groups"
+}
+
+download_model() {
+    local url="$1"
+    local destination="$2"
+    local temp_file
+
+    if [[ -s "${destination}" ]]; then
+        return
+    fi
+
+    temp_file="$(mktemp "${destination}.XXXXXX")"
+    if ! curl --fail --location --retry 2 --connect-timeout 15 \
+        --output "${temp_file}" "${url}"; then
+        rm -f "${temp_file}"
+        error "Failed to download model from ${url}"
+    fi
+    mv "${temp_file}" "${destination}"
 }
 
 install_service_files() {
@@ -93,12 +109,19 @@ install_service_files() {
     mkdir -p "${CONFIG_DIR}"
     mkdir -p "${STATE_DIR}"
     mkdir -p "${DB_DIR}"
+    mkdir -p "${MODEL_DIR}"
     mkdir -p "${LOG_DIR}"
     
     # Copy service script
     cp "${SCRIPT_DIR}/hailo_face_service.py" "${INSTALL_DIR}/" || \
         error "Failed to copy service script"
+    cp "${SCRIPT_DIR}/face_attributes.py" "${INSTALL_DIR}/" || \
+        error "Failed to copy face attribute pipeline"
     chmod +x "${INSTALL_DIR}/hailo_face_service.py"
+    chmod 644 "${INSTALL_DIR}/face_attributes.py"
+
+    download_model "${SCRFD_HEF_URL}" "${MODEL_DIR}/scrfd_2.5g_384_640.hef"
+    download_model "${MIVOLO_HEF_URL}" "${MODEL_DIR}/mivolo_d1.hef"
     
     # Render and install config
     if [[ ! -f "${CONFIG_FILE}" ]]; then
@@ -112,6 +135,7 @@ install_service_files() {
     
     # Set permissions
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${STATE_DIR}"
+    chmod 644 "${MODEL_DIR}/scrfd_2.5g_384_640.hef" "${MODEL_DIR}/mivolo_d1.hef"
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${LOG_DIR}"
     chmod 755 "${INSTALL_DIR}"
     chmod 644 "${CONFIG_FILE}"

@@ -1,0 +1,29 @@
+[Unit]
+Description=Hailo YamNet Audio Classification Service
+After=network-online.target hailo-device-manager.service
+Requires=hailo-device-manager.service
+
+[Service]
+Type=simple
+User=hailo-audio
+Group=hailo-audio
+SupplementaryGroups=hailo-device-mgr
+WorkingDirectory=/opt/hailo-audio
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/hailo-device-manager
+Environment=HAILO_AUDIO_MODEL=/var/lib/hailo-audio/resources/models/hailo10h/yamnet.hef
+Environment=HAILO_AUDIO_CLASS_MAP=/var/lib/hailo-audio/resources/yamnet_class_map.json
+ExecStart=/opt/hailo-audio/venv/bin/python /opt/hailo-audio/hailo_audio_server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=768M
+CPUQuota=50%
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/hailo-audio
+
+[Install]
+WantedBy=multi-user.target

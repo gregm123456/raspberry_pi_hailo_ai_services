@@ -11,20 +11,28 @@ class ServiceManager:
         "hailo-ollama",
         "hailo-vision",
         "hailo-whisper",
+        "hailo-audio",
+        "hailo-face",
+        "hailo-super-resolution",
         "hailo-ocr",
         "hailo-clip",
         "hailo-pose",
         "hailo-depth",
+        "hailo-tracking",
         "hailo-piper",
     ]
 
     OLLAMA_CONFLICTS = [
         "hailo-vision",
         "hailo-whisper",
+        "hailo-audio",
+        "hailo-face",
+        "hailo-super-resolution",
         "hailo-ocr",
         "hailo-clip",
         "hailo-pose",
         "hailo-depth",
+        "hailo-tracking",
         "hailo-piper",
     ]
 

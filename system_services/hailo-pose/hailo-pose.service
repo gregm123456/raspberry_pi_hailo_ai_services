@@ -8,6 +8,7 @@ Type=simple
 
 User=hailo-pose
 Group=hailo-pose
+SupplementaryGroups=hailo-device-mgr
 
 # Set working directory for log file creation
 WorkingDirectory=/var/lib/hailo-pose

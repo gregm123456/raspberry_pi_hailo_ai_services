@@ -1,0 +1,30 @@
+[Unit]
+Description=Hailo Video Tracking Service
+After=network-online.target hailo-device-manager.service
+Requires=hailo-device-manager.service
+
+[Service]
+Type=simple
+User=hailo-tracking
+Group=hailo-tracking
+SupplementaryGroups=hailo-device-mgr video
+WorkingDirectory=/opt/hailo-tracking
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/hailo-device-manager
+# The service delegates inference to Device Manager; these HEFs are not preloaded.
+Environment=HAILO_TRACKING_STARK_HEF=/var/lib/hailo-tracking/models/stark_lightning_repvgg_a0.hef
+Environment=HAILO_TRACKING_BYTETRACK_HEF=/var/lib/hailo-tracking/models/bytetrack_tiny_mot17.hef
+ExecStart=/opt/hailo-tracking/venv/bin/python /opt/hailo-tracking/hailo_tracking_service.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+# Bound CPU-side video processing; Hailo inference memory is managed separately.
+MemoryMax=1G
+CPUQuota=100%
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -60,15 +60,12 @@ setup_structure() {
         useradd -r -s /usr/sbin/nologin -d "${DATA_DIR}" -g "${SERVICE_GROUP}" "${SERVICE_USER}"
     fi
     
-    # Add user to NPU device group for access
-    local device_group
-    device_group=$(stat -c '%G' /dev/hailo0)
-    if ! getent group "${device_group}" >/dev/null; then
-        error "Device group '${device_group}' not found. Check Hailo installation/udev rules."
+    if ! getent group hailo-device-mgr >/dev/null 2>&1; then
+        error "hailo-device-mgr group is missing; install hailo-device-manager first."
+        exit 1
     fi
-    
-    log "Adding ${SERVICE_USER} to ${device_group} group"
-    usermod -aG "${device_group}" "${SERVICE_USER}"
+    log "Adding ${SERVICE_USER} to hailo-device-mgr for socket access"
+    usermod -aG hailo-device-mgr "${SERVICE_USER}"
 }
 
 setup_venv() {

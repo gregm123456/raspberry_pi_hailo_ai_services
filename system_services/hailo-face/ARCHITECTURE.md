@@ -18,16 +18,17 @@ The hailo-face service provides a REST API for face detection, recognition, and 
 ┌─────────────────▼───────────────────────────────────────┐
 │               Flask REST API Server                      │
 │  ┌─────────────────────────────────────────────────┐   │
-│  │  Endpoints: /v1/detect, /v1/embed, /v1/recognize│   │
+│  │  Endpoints: /v1/attributes, /v1/detect, /v1/embed│   │
+│  │             /v1/recognize, /v1/database/*         │
 │  │             /v1/database/*                        │   │
 │  └───────┬──────────────────────────────────┬───────┘   │
 │          │                                   │           │
 │  ┌───────▼───────────────┐         ┌────────▼────────┐  │
-│  │ FaceRecognitionModel  │         │  FaceDatabase   │  │
+│  │ FaceAttributePipeline │         │  FaceDatabase   │  │
 │  │                       │         │                 │  │
-│  │ - Detection (SCRFD)   │         │  SQLite DB      │  │
-│  │ - Recognition (ArcFace│         │  - Identities   │  │
-│  │ - Thread-safe         │         │  - Embeddings   │  │
+│  │ - SCRFD face detection│         │  SQLite DB      │  │
+│  │ - MiVOLO estimates    │         │  - Identities   │  │
+│  │ - Hailo Device Manager│         │  - Embeddings   │  │
 │  └───────┬───────────────┘         └─────────────────┘  │
 │          │                                               │
 └──────────┼───────────────────────────────────────────────┘
@@ -35,9 +36,9 @@ The hailo-face service provides a REST API for face detection, recognition, and 
 ┌──────────▼───────────────────────────────────────────────┐
 │               Hailo-10H NPU (PCIe)                       │
 │  ┌──────────────────┐      ┌──────────────────┐         │
-│  │ Detection Model  │      │ Recognition Model │         │
-│  │   SCRFD-10G      │      │ ArcFace MobileFaceNet │    │
-│  │   (Face Bbox)    │      │   (512D Embedding)│         │
+│  │ Detection Model  │      │ Attribute Model   │         │
+│  │ SCRFD 2.5g 384x640│     │   MiVOLO D1       │         │
+│  │ (boxes+landmarks)│      │  (age/gender)     │         │
 │  └──────────────────┘      └──────────────────┘         │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -62,33 +63,51 @@ The hailo-face service provides a REST API for face detection, recognition, and 
 
 ### 2. FaceRecognitionModel
 
-**Purpose:** Wrapper for Hailo-accelerated face detection and recognition models
+**Purpose:** Legacy prototype for detection and identity-recognition endpoints.
+
+The existing `FaceRecognitionModel` still uses mock detection and embeddings.
+Its `/v1/detect`, `/v1/embed`, and `/v1/recognize` behavior is not the verified
+Hailo-10H path. Do not use the mock identity results for real recognition.
+
+### 3. FaceAttributePipeline
+
+**Purpose:** Actual Hailo-10H face detection and age/gender estimation through
+the Device Manager.
+
+**Inference flow:**
+1. Resize an RGB image to 640x384 and submit it to the public v5.5.0 SCRFD
+   2.5g HEF using the Device Manager `tensor` handler.
+2. Decode the three SCRFD output scales on the CPU, apply confidence filtering
+   and NMS, and map boxes/landmarks back to the source image.
+3. For each detected face, create a 224x224x6 MiVOLO input from the face crop
+   and a zero-filled person crop (MiVOLO face-only mode).
+4. Return MiVOLO's age output and softmaxed gender scores with the face crop.
+
+Age and gender are model estimates, not verified attributes. This endpoint
+does not identify a person.
 
 **Models:**
-- **Detection:** SCRFD-10G (default) or RetinaFace  
-  - Input: RGB image (any size)
-  - Output: Bounding boxes, confidence scores, optional landmarks
-  
-- **Recognition:** ArcFace MobileFaceNet  
-  - Input: Aligned face crop (112x112 typical)
-  - Output: 512-dimensional L2-normalized embedding
+- **SCRFD 2.5g 384x640:** Input is RGB UINT8; outputs box, score, and
+  five-point landmark tensors at strides 8, 16, and 32.
+- **MiVOLO D1:** Input is RGB face crop plus a zero-filled person crop;
+  output is two gender logits and age in years.
 
 **Model Loading Strategy:**
-- **Persistent Loading:** Models loaded at service startup and kept resident in memory
-- **Rationale:** Startup latency (~30-60s) makes on-demand loading impractical
-- **Graceful Unload:** Not implemented (service restart required)
+- The Device Manager loads each HEF on first use and retains it until LRU
+  eviction or manager restart.
+- The face service sends tensor requests over the shared socket; the manager
+  serializes model loads and inference with other clients.
 
 **Thread Safety:**
-- Uses `threading.RLock()` for model access
-- Prevents concurrent inference (Hailo device constraint)
-- Queue handled by Flask's thread pool
+- NPU access is serialized by the Device Manager rather than a local
+  `FaceAttributePipeline` lock.
 
 **Mock Mode:**
-- Fallback to mock inference if hailo-apps import fails
-- Returns random embeddings/detections for development
-- Enables testing without Hailo hardware
+- The legacy identity endpoints still have mock detection/embedding code.
+- The `/v1/attributes` endpoint has no mock fallback; missing HEFs or Device
+  Manager errors are reported as service errors.
 
-### 3. FaceDatabase
+### 4. FaceDatabase
 
 **Purpose:** Persistent storage for known face identities and embeddings
 
@@ -121,7 +140,7 @@ embeddings:
 - Optional automatic backup on startup (configurable)
 - Backup path: `/var/lib/hailo-face/backups/`
 
-### 4. systemd Service Integration
+### 5. systemd Service Integration
 
 **Unit Type:** `Type=simple`
 
@@ -131,7 +150,8 @@ embeddings:
 - Standard output goes to journald
 
 **Dependencies:**
-- `After=network-online.target` (wait for network)
+- `After=network-online.target hailo-device-manager.service`
+- `Requires=hailo-device-manager.service`
 - `Wants=network-online.target` (optional dependency)
 
 **Resource Limits:**
@@ -141,7 +161,7 @@ embeddings:
 
 **User/Group:**
 - Dedicated `hailo-face` user (non-login)
-- Member of `video` group (for `/dev/hailo0` access)
+- Member of `video` and `hailo-device-mgr` groups
 - StateDirectory: `/var/lib/hailo-face`
 
 ## Data Flow

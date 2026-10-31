@@ -29,6 +29,8 @@ import yaml
 from flask import Flask, jsonify, request
 from PIL import Image
 
+from face_attributes import FaceAttributePipeline
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -73,6 +75,14 @@ class FaceServiceConfig:
                 "max_faces": 10,
                 "database_path": "/var/lib/hailo-face/database",
             },
+            "face_attributes": {
+                "enabled": True,
+                "scrfd_hef": "/var/lib/hailo-face/models/scrfd_2.5g_384_640.hef",
+                "mivolo_hef": "/var/lib/hailo-face/models/mivolo_d1.hef",
+                "score_threshold": 0.5,
+                "nms_threshold": 0.4,
+                "max_faces": 10,
+            },
             "database": {
                 "enabled": True,
                 "db_file": "/var/lib/hailo-face/faces.db",
@@ -90,7 +100,11 @@ class FaceServiceConfig:
     @property
     def face_recognition(self) -> Dict[str, Any]:
         return self.config.get("face_recognition", {})
-    
+
+    @property
+    def face_attributes(self) -> Dict[str, Any]:
+        return self.config.get("face_attributes", {})
+
     @property
     def database(self) -> Dict[str, Any]:
         return self.config.get("database", {})
@@ -430,6 +444,23 @@ def create_app(config: FaceServiceConfig) -> Flask:
     db_enabled = config.database.get("enabled", True)
     db_path = config.database.get("db_file", "/var/lib/hailo-face/faces.db")
     face_db = FaceDatabase(db_path) if db_enabled else None
+    attributes_config = config.face_attributes
+    face_attributes_model = (
+        FaceAttributePipeline(
+            scrfd_hef=attributes_config.get(
+                "scrfd_hef",
+                "/var/lib/hailo-face/models/scrfd_2.5g_384_640.hef",
+            ),
+            mivolo_hef=attributes_config.get(
+                "mivolo_hef", "/var/lib/hailo-face/models/mivolo_d1.hef"
+            ),
+            score_threshold=attributes_config.get("score_threshold", 0.5),
+            nms_threshold=attributes_config.get("nms_threshold", 0.4),
+            max_faces=attributes_config.get("max_faces", 10),
+        )
+        if attributes_config.get("enabled", True)
+        else None
+    )
     
     @app.route("/health", methods=["GET"])
     def health() -> Tuple[Dict[str, Any], int]:
@@ -440,8 +471,30 @@ def create_app(config: FaceServiceConfig) -> Flask:
             "model_loaded": face_model.is_loaded,
             "detection_model": face_model.detection_model_name,
             "recognition_model": face_model.recognition_model_name,
+            "face_attributes_enabled": face_attributes_model is not None,
             "database_enabled": db_enabled,
         }), 200
+
+    @app.route("/v1/attributes", methods=["POST"])
+    def estimate_face_attributes() -> Tuple[Dict[str, Any], int]:
+        if face_attributes_model is None:
+            return jsonify({"error": "Face attribute estimation is disabled"}), 503
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({"error": "No JSON body"}), 400
+        image = _decode_image(data)
+        if image is None:
+            return jsonify({"error": "Failed to decode image"}), 400
+        try:
+            return jsonify(face_attributes_model.analyze(image)), 200
+        except FileNotFoundError as exc:
+            logger.error("Face attribute models are unavailable: %s", exc)
+            return jsonify({"error": str(exc)}), 503
+        except Exception as exc:
+            logger.exception("Face attribute inference failed")
+            return jsonify(
+                {"error": "Face attribute inference failed", "details": str(exc)}
+            ), 502
     
     @app.route("/v1/detect", methods=["POST"])
     def detect_faces() -> Tuple[Dict[str, Any], int]:

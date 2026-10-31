@@ -1,0 +1,30 @@
+[Unit]
+Description=Hailo SPANF x4 Super-Resolution Service
+After=network-online.target hailo-device-manager.service
+Requires=hailo-device-manager.service
+
+[Service]
+Type=simple
+User=hailo-super-resolution
+Group=hailo-super-resolution
+SupplementaryGroups=hailo-device-mgr
+WorkingDirectory=/opt/hailo-super-resolution
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/hailo-device-manager
+Environment=HAILO_SUPER_RESOLUTION_HEF=/var/lib/hailo-super-resolution/models/spanf_x4.hef
+Environment=HAILO_SUPER_RESOLUTION_HOST=127.0.0.1
+Environment=HAILO_SUPER_RESOLUTION_PORT=11442
+ExecStart=/opt/hailo-super-resolution/venv/bin/python /opt/hailo-super-resolution/hailo_super_resolution_service.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+MemoryMax=2G
+CPUQuota=80%
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/hailo-super-resolution
+
+[Install]
+WantedBy=multi-user.target

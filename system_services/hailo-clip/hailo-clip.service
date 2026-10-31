@@ -8,6 +8,7 @@ Type=simple
 
 User=hailo-clip
 Group=hailo-clip
+SupplementaryGroups=hailo-device-mgr
 
 # Set working directory for log file creation
 WorkingDirectory=/var/lib/hailo-clip

@@ -4,7 +4,7 @@ Documentation=man:systemd.unit(5) man:systemd.service(5)
 After=network.target
 
 # Ensure this service starts before any services that use it
-Before=hailo-vision.service hailo-ollama.service hailo-face.service hailo-ocr.service hailo-pose.service
+Before=hailo-vision.service hailo-ollama.service hailo-face.service hailo-ocr.service hailo-pose.service hailo-audio.service
 
 [Service]
 Type=simple
@@ -20,6 +20,8 @@ Restart=always
 RestartSec=5
 StartLimitInterval=120
 StartLimitBurst=12
+TimeoutStartSec=3min
+TimeoutStopSec=5min
 
 # Resource limits
 CPUQuota=20%

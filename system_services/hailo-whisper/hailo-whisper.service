@@ -8,6 +8,7 @@ Type=simple
 
 User=hailo-whisper
 Group=hailo-whisper
+SupplementaryGroups=hailo-device-mgr
 
 WorkingDirectory=/var/lib/hailo-whisper
 StateDirectory=hailo-whisper

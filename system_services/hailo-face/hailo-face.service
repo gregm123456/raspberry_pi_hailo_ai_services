@@ -1,13 +1,15 @@
 [Unit]
 Description=Hailo Face Recognition (Detection and Embedding Comparison on Hailo-10H)
-After=network-online.target
+After=network-online.target hailo-device-manager.service
 Wants=network-online.target
+Requires=hailo-device-manager.service
 
 [Service]
 Type=simple
 
 User=hailo-face
 Group=hailo-face
+SupplementaryGroups=hailo-device-mgr
 
 # Set working directory for log file creation
 WorkingDirectory=/var/lib/hailo-face
@@ -24,6 +26,7 @@ Environment=XDG_DATA_DIRS=/var/lib:/usr/share:/usr/local/share
 # HailoRT and Python optimization
 Environment=HAILO_PRINT_TO_SYSLOG=1
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/hailo-device-manager
 
 ExecStart=/usr/bin/python3 /opt/hailo-face/hailo_face_service.py
 

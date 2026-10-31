@@ -50,12 +50,16 @@ from status_formatters import (
     create_queue_gauge_html,
 )
 from portal_client import (
+    HailoAudioClient,
     HailoClipClient,
     HailoDepthClient,
+    HailoFaceClient,
     HailoOllamaClient,
     HailoOCRClient,
     HailoPiperClient,
     HailoPoseClient,
+    HailoSuperResolutionClient,
+    HailoTrackingClient,
     HailoVisionClient,
     HailoWhisperClient,
 )
@@ -64,13 +68,17 @@ from service_manager import ServiceManager
 monitor = DeviceStatusMonitor()
 service_mgr = ServiceManager()
 
+audio_client = HailoAudioClient()
 clip_client = HailoClipClient()
 vision_client = HailoVisionClient()
 whisper_client = HailoWhisperClient()
 ocr_client = HailoOCRClient()
+face_client = HailoFaceClient()
+super_resolution_client = HailoSuperResolutionClient()
 pose_client = HailoPoseClient()
 depth_client = HailoDepthClient()
 piper_client = HailoPiperClient()
+tracking_client = HailoTrackingClient()
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"])
@@ -123,6 +131,7 @@ def build_gradio_interface() -> gr.Blocks:
         css=(
             ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
             ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
+            ".face-crops-gallery img{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;max-width:100%;height:auto;object-fit:contain;}"
         )
     ) as demo:
         gr.Markdown("# Hailo AI Services Portal")
@@ -491,6 +500,187 @@ def build_gradio_interface() -> gr.Blocks:
                         whisper_ready_btn.click(fn=whisper_ready_info, outputs=[whisper_info])
                         whisper_models_btn.click(fn=whisper_models_info, outputs=[whisper_info])
 
+            with gr.TabItem("Audio"):
+                gr.Markdown("### YamNet AudioSet Event Classification")
+                with gr.Tabs():
+                    with gr.TabItem("Classify"):
+                        with gr.Row():
+                            with gr.Column():
+                                audio_input = gr.Audio(
+                                    label="Upload PCM WAV", type="filepath", sources=["upload", "microphone"]
+                                )
+                                audio_top_k = gr.Slider(1, 20, value=5, step=1, label="Top classes")
+                                audio_classify_btn = gr.Button("Classify audio", variant="primary")
+                            with gr.Column():
+                                audio_predictions = gr.JSON(label="AudioSet predictions")
+                                audio_performance = gr.Textbox(label="Performance", interactive=False)
+
+                        async def classify_audio(path: str, top_k: int) -> Tuple[Dict[str, Any], str]:
+                            if not path:
+                                return {"error": "No audio provided"}, ""
+                            result = await audio_client.classify(path, int(top_k))
+                            return result, (
+                                f"{result.get('duration_seconds', 0):.2f}s audio; "
+                                f"{result.get('patch_count', 0)} windows; "
+                                f"{result.get('inference_time_ms', 0):.1f} ms"
+                            )
+
+                        audio_classify_btn.click(
+                            fn=classify_audio,
+                            inputs=[audio_input, audio_top_k],
+                            outputs=[audio_predictions, audio_performance],
+                        )
+
+                    with gr.TabItem("Info"):
+                        with gr.Row():
+                            audio_health_btn = gr.Button("Health")
+                            audio_ready_btn = gr.Button("Ready")
+                        audio_info = gr.JSON(label="Service info")
+
+                        async def audio_health_info() -> Dict[str, Any]:
+                            return await audio_client.health()
+
+                        async def audio_ready_info() -> Dict[str, Any]:
+                            return await audio_client.readiness()
+
+                        audio_health_btn.click(fn=audio_health_info, outputs=[audio_info])
+                        audio_ready_btn.click(fn=audio_ready_info, outputs=[audio_info])
+
+            with gr.TabItem("Face"):
+                gr.Markdown(
+                    "### Face Detection and Attribute Estimates\n"
+                    "SCRFD detects faces; MiVOLO estimates age and gender scores. "
+                    "These are model estimates, not verified attributes."
+                )
+                with gr.Tabs():
+                    with gr.TabItem("Analyze"):
+                        with gr.Row():
+                            face_image = gr.Image(
+                                label="Upload Image", type="filepath"
+                            )
+                            with gr.Column():
+                                face_analyze_btn = gr.Button(
+                                    "Analyze faces", variant="primary"
+                                )
+                                face_performance = gr.Textbox(
+                                    label="Performance", interactive=False
+                                )
+                        face_crops = gr.Gallery(
+                            label="Detected face crops", columns=3, elem_classes="face-crops-gallery"
+                        )
+                        face_results = gr.JSON(label="Face results")
+
+                        async def analyze_faces(
+                            image_path: str,
+                        ) -> Tuple[List[Tuple[Image.Image, str]], Dict[str, Any], str]:
+                            if not image_path:
+                                return [], {"error": "No image provided"}, ""
+                            result = await face_client.estimate_attributes(image_path)
+                            if "error" in result:
+                                return [], result, result["error"]
+                            crops = []
+                            faces = []
+                            for face in result.get("faces", []):
+                                visible_face = {
+                                    key: value
+                                    for key, value in face.items()
+                                    if key != "crop"
+                                }
+                                faces.append(visible_face)
+                                crop_uri = face.get("crop", "")
+                                if crop_uri.startswith("data:image/"):
+                                    crop_data = base64.b64decode(
+                                        crop_uri.split(",", 1)[1], validate=True
+                                    )
+                                    crop_image = Image.open(
+                                        io.BytesIO(crop_data)
+                                    ).convert("RGB")
+                                    caption = (
+                                        f"Age {face.get('age_years', 'N/A')}; "
+                                        f"{face.get('gender', 'unknown')} "
+                                        f"({face.get('gender_scores', {})})"
+                                    )
+                                    crops.append((crop_image, caption))
+                            visible_result = {**result, "faces": faces}
+                            timing = (
+                                f"{result.get('count', 0)} faces; "
+                                f"{result.get('inference_time_ms', 0):.1f} ms"
+                            )
+                            return crops, visible_result, timing
+
+                        face_analyze_btn.click(
+                            fn=analyze_faces,
+                            inputs=[face_image],
+                            outputs=[face_crops, face_results, face_performance],
+                        )
+
+                    with gr.TabItem("Info"):
+                        face_health_btn = gr.Button("Health")
+                        face_info = gr.JSON(label="Service info")
+
+                        async def face_health_info() -> Dict[str, Any]:
+                            return await face_client.health()
+
+                        face_health_btn.click(fn=face_health_info, outputs=[face_info])
+
+            with gr.TabItem("Super Resolution"):
+                gr.Markdown(
+                    "### SPANF x4 Image Upscaling\n"
+                    "Preserves aspect ratio and uses overlapping 512×512 tiles. "
+                    "Images are limited to 4 megapixels."
+                )
+                with gr.Row():
+                    super_resolution_input = gr.Image(
+                        label="Input image", type="filepath"
+                    )
+                    super_resolution_output = gr.Image(
+                        label="4× output", type="pil"
+                    )
+                with gr.Row():
+                    super_resolution_button = gr.Button(
+                        "Upscale 4×", variant="primary"
+                    )
+                    super_resolution_performance = gr.Textbox(
+                        label="Performance", interactive=False
+                    )
+                super_resolution_info = gr.JSON(label="Result details")
+
+                async def upscale_image(
+                    image_path: str,
+                ) -> Tuple[Optional[Image.Image], Dict[str, Any], str]:
+                    if not image_path:
+                        return None, {"error": "No image provided"}, ""
+                    result = await super_resolution_client.upscale(image_path)
+                    if "error" in result:
+                        return None, result, str(result["error"])
+                    image_uri = result.pop("image", "")
+                    if not image_uri.startswith("data:image/"):
+                        return (
+                            None,
+                            {"error": "Service response did not contain an output image"},
+                            "Invalid service response",
+                        )
+                    encoded = image_uri.split(",", 1)[1]
+                    output_image = Image.open(
+                        io.BytesIO(base64.b64decode(encoded, validate=True))
+                    ).convert("RGB")
+                    timing = (
+                        f"{result.get('output_width')}×{result.get('output_height')}; "
+                        f"{result.get('tiles_processed')} tiles; "
+                        f"{result.get('inference_time_ms', 0):.1f} ms"
+                    )
+                    return output_image, result, timing
+
+                super_resolution_button.click(
+                    fn=upscale_image,
+                    inputs=[super_resolution_input],
+                    outputs=[
+                        super_resolution_output,
+                        super_resolution_info,
+                        super_resolution_performance,
+                    ],
+                )
+
             with gr.TabItem("OCR"):
                 gr.Markdown("### Text Detection and Recognition")
                 with gr.Tabs():
@@ -713,6 +903,159 @@ def build_gradio_interface() -> gr.Blocks:
                         depth_info_btn.click(fn=depth_service_info, outputs=[depth_info])
 
 
+
+            with gr.TabItem("Tracking"):
+                gr.Markdown(
+                    "### Video Object Tracking\n"
+                    "STARK follows one manually selected target; enter its "
+                    "first-frame pixel coordinates after previewing the source. "
+                    "ByteTrack detects and associates pedestrians automatically. "
+                    "The current association logic is ByteTrack-style, not the "
+                    "full Kalman-filter/Hungarian reference tracker."
+                )
+                tracking_source = gr.Dropdown(
+                    ["Uploaded video", "USB camera", "CSI camera"],
+                    value="Uploaded video",
+                    label="Video source",
+                )
+                tracking_video_input = gr.File(
+                    label="Upload video",
+                    file_types=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+                    type="filepath",
+                )
+                tracking_mode = gr.Dropdown(
+                    ["STARK — single target", "ByteTrack — pedestrians"],
+                    value="STARK — single target",
+                    label="Tracking mode",
+                )
+                with gr.Row():
+                    tracking_x = gr.Number(value=0, label="Target x (pixels)")
+                    tracking_y = gr.Number(value=0, label="Target y (pixels)")
+                    tracking_width = gr.Number(value=1, label="Target width (pixels)")
+                    tracking_height = gr.Number(value=1, label="Target height (pixels)")
+                tracking_duration = gr.Slider(
+                    1,
+                    20,
+                    value=5,
+                    step=1,
+                    label="Camera clip duration (seconds)",
+                )
+                with gr.Row():
+                    tracking_preview_button = gr.Button("Preview source")
+                    tracking_preview_message = gr.Textbox(
+                        label="Preview details", interactive=False
+                    )
+                tracking_preview = gr.Image(label="First frame / camera preview")
+                tracking_button = gr.Button("Track video", variant="primary")
+                with gr.Row():
+                    tracking_output = gr.Video(label="Tracked video")
+                    tracking_result = gr.JSON(label="Result details")
+                tracking_status = gr.Textbox(
+                    label="Status", interactive=False
+                )
+
+                async def preview_tracking_source(
+                    source: str, video_path: Optional[str]
+                ) -> Tuple[Optional[Image.Image], str]:
+                    if source == "Uploaded video":
+                        if not video_path:
+                            return None, "Upload a video first."
+                        image_bytes = await tracking_client.preview_video(video_path)
+                    else:
+                        camera_source = "usb" if source == "USB camera" else "csi"
+                        image_bytes = await tracking_client.preview_camera(camera_source)
+                    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+                    return image, (
+                        f"Preview is {image.width}×{image.height}. "
+                        "STARK coordinates use this source's original pixel dimensions."
+                    )
+
+                async def run_tracking(
+                    source: str,
+                    video_path: Optional[str],
+                    mode_label: str,
+                    x: float,
+                    y: float,
+                    width: float,
+                    height: float,
+                    duration: float,
+                ) -> Tuple[Optional[str], Dict[str, Any], str]:
+                    if source == "Uploaded video" and not video_path:
+                        return None, {"error": "Upload a video first."}, "No video selected"
+                    mode = "stark" if mode_label.startswith("STARK") else "bytetrack"
+                    initial_box = (
+                        (x, y, width, height) if mode == "stark" else None
+                    )
+                    try:
+                        if source == "Uploaded video":
+                            media, metadata = await tracking_client.track_video(
+                                video_path, mode, initial_box
+                            )
+                        else:
+                            camera_source = "usb" if source == "USB camera" else "csi"
+                            media, metadata = await tracking_client.track_camera(
+                                camera_source, mode, duration, initial_box
+                            )
+                    except RuntimeError as exc:
+                        return None, {"error": str(exc)}, str(exc)
+                    with tempfile.NamedTemporaryFile(
+                        delete=False, suffix=".mp4"
+                    ) as output_file:
+                        output_file.write(media)
+                        output_path = output_file.name
+                    status = (
+                        f"Processed {metadata.get('frames_processed', 0)} frames; "
+                        f"{metadata.get('unique_tracks', 0)} unique tracks; "
+                        f"{metadata.get('inference_time_ms', 0):.1f} ms total inference"
+                    )
+                    return output_path, metadata, status
+
+                tracking_preview_button.click(
+                    fn=preview_tracking_source,
+                    inputs=[tracking_source, tracking_video_input],
+                    outputs=[tracking_preview, tracking_preview_message],
+                )
+                tracking_button.click(
+                    fn=run_tracking,
+                    inputs=[
+                        tracking_source,
+                        tracking_video_input,
+                        tracking_mode,
+                        tracking_x,
+                        tracking_y,
+                        tracking_width,
+                        tracking_height,
+                        tracking_duration,
+                    ],
+                    outputs=[tracking_output, tracking_result, tracking_status],
+                )
+
+                with gr.Tabs():
+                    with gr.TabItem("Info"):
+                        with gr.Row():
+                            tracking_health_button = gr.Button("Health")
+                            tracking_ready_button = gr.Button("Ready")
+                            tracking_info_button = gr.Button("Info")
+                        tracking_info = gr.JSON(label="Service info")
+
+                        async def tracking_health_info() -> Dict[str, Any]:
+                            return await tracking_client.health()
+
+                        async def tracking_readiness_info() -> Dict[str, Any]:
+                            return await tracking_client.readiness()
+
+                        async def tracking_service_info() -> Dict[str, Any]:
+                            return await tracking_client.info()
+
+                        tracking_health_button.click(
+                            fn=tracking_health_info, outputs=[tracking_info]
+                        )
+                        tracking_ready_button.click(
+                            fn=tracking_readiness_info, outputs=[tracking_info]
+                        )
+                        tracking_info_button.click(
+                            fn=tracking_service_info, outputs=[tracking_info]
+                        )
 
             with gr.TabItem("Piper"):
                 gr.Markdown("### Text to Speech")

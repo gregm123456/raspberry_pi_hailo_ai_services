@@ -9,6 +9,7 @@ Type=simple
 
 User=hailo-vision
 Group=hailo-vision
+SupplementaryGroups=hailo-device-mgr
 
 # Set working directory for log file creation
 WorkingDirectory=/var/lib/hailo-vision

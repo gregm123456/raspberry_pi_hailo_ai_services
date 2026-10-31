@@ -1,15 +1,19 @@
 # Hailo Face Recognition Service
 
-REST API service for face detection, recognition, and identity management using Hailo-10H NPU acceleration on Raspberry Pi 5.
+REST API service for Hailo-10H face detection and MiVOLO age/gender estimates, with prototype identity-management endpoints.
 
 ## Features
 
-- **Face Detection:** Detect faces with bounding boxes and confidence scores
+- **Face Attributes:** SCRFD detection, landmarks, and MiVOLO age/gender estimates
 - **Embedding Extraction:** Generate 512-dimensional face embeddings using ArcFace
 - **Face Recognition:** Match faces against a database of known identities
 - **Identity Management:** Add, remove, and list known identities
 - **Persistent Database:** SQLite storage for face embeddings
-- **Hailo-10H Accelerated:** Hardware-accelerated inference on NPU
+- **Hailo-10H Accelerated:** Face attribute inference via the Device Manager
+
+The `/v1/attributes` endpoint is the verified Hailo-10H path. The existing
+embedding and identity-recognition endpoints remain prototype code and still
+use mock inference; do not use those endpoints as real biometric recognition.
 
 ## Architecture
 
@@ -23,6 +27,7 @@ The service wraps Hailo's face recognition pipeline with a Flask REST API and pr
 
 - Raspberry Pi 5 with AI HAT+ 2 (Hailo-10H NPU)
 - 64-bit Raspberry Pi OS (Trixie)
+- Hailo Device Manager installed and running (`hailo-device-mgr` socket group)
 - Hailo kernel driver installed:
   ```bash
   sudo apt install dkms hailo-h10-all
@@ -40,9 +45,11 @@ sudo ./install.sh
 The installer will:
 1. Create `hailo-face` system user
 2. Install service files to `/opt/hailo-face/`
-3. Render configuration to `/etc/hailo/hailo-face.yaml`
-4. Set up database at `/var/lib/hailo-face/faces.db`
-5. Install and start systemd service
+3. Download public v5.5.0 Hailo-10H SCRFD and MiVOLO HEFs to
+   `/var/lib/hailo-face/models/` (no Developer Zone login required)
+4. Render configuration to `/etc/hailo/hailo-face.yaml`
+5. Set up database at `/var/lib/hailo-face/faces.db`
+6. Install and start systemd service
 
 ## Verification
 
@@ -71,6 +78,16 @@ curl -X POST http://localhost:5002/v1/detect \
     "image": "data:image/jpeg;base64,..."
   }'
 ```
+
+### Face Attributes
+```bash
+curl -X POST http://localhost:5002/v1/attributes \
+  -H "Content-Type: application/json" \
+  -d '{"image":"data:image/jpeg;base64,..."}'
+```
+
+Returns face boxes, landmarks, face crops, age estimates, and male/female
+scores. These are model estimates, not verified attributes.
 
 ### Face Embedding
 ```bash
@@ -130,6 +147,14 @@ face_recognition:
   recognition_threshold: 0.5
   max_faces: 10
   database_path: /var/lib/hailo-face/database
+
+face_attributes:
+  enabled: true
+  scrfd_hef: /var/lib/hailo-face/models/scrfd_2.5g_384_640.hef
+  mivolo_hef: /var/lib/hailo-face/models/mivolo_d1.hef
+  score_threshold: 0.5
+  nms_threshold: 0.4
+  max_faces: 10
 
 database:
   enabled: true

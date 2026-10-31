@@ -18,7 +18,7 @@ HAILO_APPS_SRC="${SCRIPT_DIR}/../../hailo-apps"
 HAILO_APPS_VENDOR_DIR="${SERVICE_DIR}/vendor"
 HAILO_APPS_VENDOR_PATH="${HAILO_APPS_VENDOR_DIR}/hailo-apps"
 DEVICE_CLIENT_SRC="${SCRIPT_DIR}/../../device_manager/device_client.py"
-HAILORT_WHEEL_URL_DEFAULT="https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl"
+HAILORT_WHEEL_URL_DEFAULT="https://dev-public.hailo.ai/2026_10/Hailo10/hailort-5.5.0-cp313-cp313-linux_aarch64.whl"
 
 usage() {
     cat <<'EOF'
@@ -76,8 +76,8 @@ PY
 }
 
 preflight_hailo() {
-    if [[ ! -e /dev/hailo0 ]]; then
-        error "/dev/hailo0 not found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.3.0): install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/"
+    if [[ ! -e /dev/h1x-0 && ! -e /dev/hailo0 ]]; then
+        error "Neither /dev/h1x-0 (Hailo-10H) nor /dev/hailo0 found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.5.0): install direct .deb from https://dev-public.hailo.ai/2026_10/Hailo10/"
         exit 1
     fi
 
@@ -185,21 +185,13 @@ resolve_hef_path('clip_vit_b_32_text_encoder', CLIP_PIPELINE)
 }
 
 configure_device_permissions() {
-    local device_group
-    device_group=$(stat -c '%G' /dev/hailo0)
-
-    if [[ -z "${device_group}" ]]; then
-        error "Could not determine group for /dev/hailo0"
+    if ! getent group hailo-device-mgr >/dev/null 2>&1; then
+        error "hailo-device-mgr group is missing; install hailo-device-manager first."
         exit 1
     fi
 
-    if ! getent group "${device_group}" >/dev/null; then
-        error "Device group '${device_group}' not found. Check Hailo installation/udev rules."
-        exit 1
-    fi
-
-    log "Adding ${SERVICE_USER} to ${device_group} group"
-    usermod -aG "${device_group}" "${SERVICE_USER}"
+    log "Adding ${SERVICE_USER} to hailo-device-mgr for socket access"
+    usermod -aG hailo-device-mgr "${SERVICE_USER}"
 }
 
 create_state_directories() {

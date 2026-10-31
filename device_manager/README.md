@@ -333,7 +333,9 @@ hailortcli scan
 If `hailortcli scan` reports no devices while `lspci` still shows Hailo hardware,
 the issue is usually DKMS/kernel drift.
 
-For kernel `6.18.x` with `hailo1x_pci 5.3.0`, a local compatibility fix that worked here:
+Historical workaround for kernel `6.18.x` with `hailo1x_pci 5.3.0` only. The
+current deployment uses driver 5.5.0; do not apply this version-specific patch
+unless the same build failure is reproduced and confirmed for that driver:
 ```bash
 # Patch DKMS source once on this machine
 sudo sed -i '/#include "monitor.h"/a #include <linux\/timer.h>' /usr/src/hailo1x_pci-5.3.0/linux/vdma/monitor.c

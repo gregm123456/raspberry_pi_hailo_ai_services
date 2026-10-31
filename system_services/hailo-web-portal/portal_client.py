@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import mimetypes
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -240,6 +241,63 @@ class HailoWhisperClient:
         )
 
 
+class HailoAudioClient:
+    def __init__(self, base_url: str = "http://127.0.0.1:11441") -> None:
+        self.base_url = base_url
+
+    async def health(self) -> Dict[str, Any]:
+        return await _request_json("GET", f"{self.base_url}/health")
+
+    async def readiness(self) -> Dict[str, Any]:
+        return await _request_json("GET", f"{self.base_url}/ready")
+
+    async def classify(self, audio_path: str, top_k: int = 5) -> Dict[str, Any]:
+        form_data = aiohttp.FormData()
+        audio_bytes = Path(audio_path).read_bytes()
+        form_data.add_field(
+            "file",
+            audio_bytes,
+            filename=_safe_filename(audio_path),
+            content_type="audio/wav",
+        )
+        return await _request_json(
+            "POST", f"{self.base_url}/v1/classify?top_k={int(top_k)}", data=form_data
+        )
+
+
+class HailoFaceClient:
+    def __init__(self, base_url: str = "http://127.0.0.1:5002") -> None:
+        self.base_url = base_url
+
+    async def health(self) -> Dict[str, Any]:
+        return await _request_json("GET", f"{self.base_url}/health")
+
+    async def estimate_attributes(self, image_path: str) -> Dict[str, Any]:
+        return await _request_json(
+            "POST",
+            f"{self.base_url}/v1/attributes",
+            json_body={"image": _encode_file_to_data_uri(image_path)},
+        )
+
+
+class HailoSuperResolutionClient:
+    def __init__(self, base_url: str = "http://127.0.0.1:11442") -> None:
+        self.base_url = base_url
+
+    async def health(self) -> Dict[str, Any]:
+        return await _request_json("GET", f"{self.base_url}/health")
+
+    async def upscale(self, image_path: str) -> Dict[str, Any]:
+        payload = {"image": _encode_file_to_data_uri(image_path)}
+        timeout = aiohttp.ClientTimeout(total=600)
+        return await _request_json(
+            "POST",
+            f"{self.base_url}/v1/super-resolve",
+            json_body=payload,
+            timeout=timeout,
+        )
+
+
 class HailoOCRClient:
     def __init__(self, base_url: str = "http://127.0.0.1:11436") -> None:
         self.base_url = base_url
@@ -326,6 +384,124 @@ class HailoDepthClient:
         form_data.add_field("normalize", str(normalize).lower())
         form_data.add_field("colormap", colormap)
         return await _request_json("POST", f"{self.base_url}/v1/depth/estimate", data=form_data)
+
+
+class HailoTrackingClient:
+    def __init__(self, base_url: str = "http://127.0.0.1:11443") -> None:
+        self.base_url = base_url
+
+    async def health(self) -> Dict[str, Any]:
+        return await _request_json("GET", f"{self.base_url}/health")
+
+    async def readiness(self) -> Dict[str, Any]:
+        return await _request_json("GET", f"{self.base_url}/health/ready")
+
+    async def info(self) -> Dict[str, Any]:
+        return await _request_json("GET", f"{self.base_url}/v1/info")
+
+    async def preview_video(self, video_path: str) -> bytes:
+        form_data = self._video_form(video_path)
+        content, _ = await self._request_media(
+            "POST", f"{self.base_url}/v1/video/preview", data=form_data
+        )
+        return content
+
+    async def preview_camera(self, source: str) -> bytes:
+        content, _ = await self._request_media(
+            "POST", f"{self.base_url}/v1/camera/preview?source={source}"
+        )
+        return content
+
+    async def track_video(
+        self,
+        video_path: str,
+        mode: str,
+        initial_box: Optional[tuple[float, float, float, float]] = None,
+    ) -> tuple[bytes, Dict[str, Any]]:
+        form_data = self._video_form(video_path)
+        form_data.add_field("mode", mode)
+        self._add_initial_box(form_data, initial_box)
+        return await self._track_media(
+            "POST", f"{self.base_url}/v1/track/video", data=form_data
+        )
+
+    async def track_camera(
+        self,
+        source: str,
+        mode: str,
+        duration_seconds: float,
+        initial_box: Optional[tuple[float, float, float, float]] = None,
+    ) -> tuple[bytes, Dict[str, Any]]:
+        payload: Dict[str, Any] = {
+            "source": source,
+            "mode": mode,
+            "duration_seconds": duration_seconds,
+        }
+        if initial_box is not None:
+            payload.update(
+                dict(zip(("x", "y", "width", "height"), initial_box))
+            )
+        return await self._track_media(
+            "POST", f"{self.base_url}/v1/track/camera", json_body=payload
+        )
+
+    @staticmethod
+    def _video_form(video_path: str) -> aiohttp.FormData:
+        form_data = aiohttp.FormData()
+        form_data.add_field(
+            "video",
+            Path(video_path).read_bytes(),
+            filename=_safe_filename(video_path),
+            content_type=_guess_mime(video_path, "video/mp4"),
+        )
+        return form_data
+
+    @staticmethod
+    def _add_initial_box(
+        form_data: aiohttp.FormData,
+        initial_box: Optional[tuple[float, float, float, float]],
+    ) -> None:
+        if initial_box is None:
+            return
+        for name, value in zip(("x", "y", "width", "height"), initial_box):
+            form_data.add_field(name, str(value))
+
+    async def _track_media(
+        self,
+        method: str,
+        url: str,
+        json_body: Optional[Dict[str, Any]] = None,
+        data: Optional[aiohttp.FormData] = None,
+    ) -> tuple[bytes, Dict[str, Any]]:
+        content, headers = await self._request_media(
+            method, url, json_body=json_body, data=data
+        )
+        try:
+            metadata = json.loads(headers.get("X-Tracking-Metadata", "{}"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Tracking service returned invalid result metadata") from exc
+        if not isinstance(metadata, dict):
+            raise RuntimeError("Tracking service returned invalid result metadata")
+        return content, metadata
+
+    async def _request_media(
+        self,
+        method: str,
+        url: str,
+        json_body: Optional[Dict[str, Any]] = None,
+        data: Optional[aiohttp.FormData] = None,
+    ) -> tuple[bytes, Dict[str, str]]:
+        timeout = aiohttp.ClientTimeout(total=900)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.request(
+                method, url, json=json_body, data=data
+            ) as response:
+                if response.status >= 400:
+                    detail = (await response.text())[:1000]
+                    raise RuntimeError(
+                        f"Tracking service returned HTTP {response.status}: {detail}"
+                    )
+                return await response.read(), dict(response.headers)
 
 
 class HailoOllamaClient:

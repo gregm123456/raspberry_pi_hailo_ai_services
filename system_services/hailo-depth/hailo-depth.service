@@ -8,6 +8,7 @@ Type=simple
 
 User=hailo-depth
 Group=hailo-depth
+SupplementaryGroups=hailo-device-mgr
 
 # Set working directory
 WorkingDirectory=/var/lib/hailo-depth

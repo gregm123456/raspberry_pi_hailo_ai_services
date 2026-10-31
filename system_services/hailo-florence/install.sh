@@ -23,7 +23,7 @@ JSON_CONFIG="${ETC_XDG_DIR}/hailo-florence.json"
 RENDER_SCRIPT="${SCRIPT_DIR}/render_config.py"
 SERVER_SCRIPT="${SCRIPT_DIR}/hailo_florence_service.py"
 REQUIREMENTS_SRC="${SCRIPT_DIR}/requirements.txt"
-HAILORT_WHEEL_URL="https://dev-public.hailo.ai/2026_04/Hailo10/hailort-5.3.0-cp313-cp313-linux_aarch64.whl"
+HAILORT_WHEEL_URL="https://dev-public.hailo.ai/2026_10/Hailo10/hailort-5.5.0-cp313-cp313-linux_aarch64.whl"
 
 log() {
     echo "[hailo-florence] $*"
@@ -54,8 +54,8 @@ require_command() {
 }
 
 preflight_hailo() {
-    if [[ ! -e /dev/hailo0 ]]; then
-        error "/dev/hailo0 not found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.3.0): install direct .deb from https://dev-public.hailo.ai/2026_04/Hailo10/"
+    if [[ ! -e /dev/h1x-0 && ! -e /dev/hailo0 ]]; then
+        error "Neither /dev/h1x-0 (Hailo-10H) nor /dev/hailo0 found. Install Hailo driver (5.1.1): sudo apt install dkms hailo-h10-all  OR (5.5.0): install direct .deb from https://dev-public.hailo.ai/2026_10/Hailo10/"
         exit 1
     fi
 
@@ -81,11 +81,16 @@ create_user_group() {
 }
 
 configure_device_permissions() {
-    local device_group
-    device_group=$(stat -c '%G' /dev/hailo0)
+    local device_node device_group
+    if [[ -e /dev/h1x-0 ]]; then
+        device_node=/dev/h1x-0
+    else
+        device_node=/dev/hailo0
+    fi
+    device_group=$(stat -c '%G' "${device_node}")
 
     if [[ -z "${device_group}" ]]; then
-        error "Could not determine group for /dev/hailo0"
+        error "Could not determine group for ${device_node}"
         exit 1
     fi
 

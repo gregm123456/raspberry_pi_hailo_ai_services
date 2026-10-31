@@ -87,6 +87,51 @@ Detect faces in an image with bounding boxes.
 
 ---
 
+### Estimate Face Attributes
+
+Detect faces with SCRFD and estimate age and gender scores with MiVOLO's
+face-only mode. This endpoint does not identify people.
+
+**Endpoint:** `POST /v1/attributes`
+
+**Request Body:**
+```json
+{
+  "image": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+}
+```
+
+**Response:**
+```json
+{
+  "model": "scrfd_2.5g_384_640+mivolo_d1",
+  "count": 1,
+  "inference_time_ms": 52.4,
+  "faces": [
+    {
+      "bbox": [120, 85, 180, 220],
+      "confidence": 0.95,
+      "landmarks": [[160, 145], [225, 146], [192, 185], [166, 225], [221, 225]],
+      "age_years": 34.2,
+      "gender": "female",
+      "gender_scores": {"male": 0.08, "female": 0.92},
+      "crop": "data:image/jpeg;base64,/9j/4AAQSkZJRg..."
+    }
+  ]
+}
+```
+
+`age_years` and `gender_scores` are model estimates, not verified attributes.
+`crop` is a JPEG data URI for the detected face.
+
+**Status Codes:**
+- `200 OK` - Inference completed; `faces` can be empty
+- `400 Bad Request` - Missing JSON body or invalid image
+- `502 Bad Gateway` - Device Manager or inference failure
+- `503 Service Unavailable` - Feature disabled or HEFs not installed
+
+---
+
 ### Extract Face Embedding
 
 Extract 512-dimensional face embedding from an image.

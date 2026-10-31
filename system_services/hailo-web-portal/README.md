@@ -2,7 +2,7 @@
 
 Unified Gradio portal for testing and managing Hailo AI system services on Raspberry Pi 5.
 
-**Supported Services:** CLIP, Vision, Whisper, OCR, Pose, Depth, Piper (7 services)
+**Supported Services:** CLIP, Vision, Whisper, Audio, Face, Super Resolution, OCR, Pose, Depth, Tracking, Piper (11 services)
 
 **Note:** `hailo-ollama` is not included in this portal due to architectural incompatibility with the device-manager. See [ARCHITECTURE.md](ARCHITECTURE.md) for details.
 
@@ -39,6 +39,17 @@ In the Service Control tab, you can:
 - Trigger one-time restart per service row via the Restart checkbox
 
 Auto-start governs whether the service starts at boot. Since these services attempt model loading during startup, this also controls which services attempt startup model auto-loading after reboot.
+
+The **Face** tab uses SCRFD and MiVOLO for face boxes, crops, and age/gender
+estimates. These are estimates, not verified attributes; the legacy face
+recognition endpoints remain prototype mock inference.
+
+The **Super Resolution** tab uses SPANF x4 with aspect-preserving overlapping
+tiles; inputs up to 4 megapixels are supported.
+
+The **Tracking** tab supports video uploads and USB/CSI camera sources, with
+STARK single-target tracking and ByteTrack-style pedestrian tracking. CSI
+capture requires compatible hardware and has not been validated on this device.
 
 Common commands:
 

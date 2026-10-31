@@ -125,7 +125,7 @@ Response (200 OK):
   "device": {
     "device_id": "0001:01:00.0",
     "architecture": "HAILO10H",
-    "fw_version": "5.3.0 (release,app)",
+    "fw_version": "5.5.0 (release,app)",
     "temperature_celsius": 53.5
   },
   "networks": {
@@ -237,6 +237,9 @@ Supported `model_type` values:
 ## Tensor Payload Format
 
 Some model types (for example `vlm_chat` and `clip`) send tensors in `input_data`.
+The `tensor` model type accepts one input under `input`, or multiple named
+inputs under `inputs` for HEFs with more than one input. Single-input requests
+remain backward compatible.
 
 Tensor object:
 ```json
@@ -244,6 +247,16 @@ Tensor object:
   "dtype": "uint8",
   "shape": [1, 224, 224, 3],
   "data_b64": "..."
+}
+```
+
+For a multi-input HEF, use its exact input names:
+```json
+{
+  "inputs": {
+    "model/input_layer1": {"dtype": "uint8", "shape": [1, 128, 128, 3], "data_b64": "..."},
+    "model/input_layer2": {"dtype": "uint8", "shape": [1, 320, 320, 3], "data_b64": "..."}
+  }
 }
 ```
 

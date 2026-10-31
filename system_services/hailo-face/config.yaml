@@ -32,6 +32,14 @@ face_recognition:
   batch_size: 1
   device_timeout_ms: 5000
 
+face_attributes:
+  enabled: true
+  scrfd_hef: /var/lib/hailo-face/models/scrfd_2.5g_384_640.hef
+  mivolo_hef: /var/lib/hailo-face/models/mivolo_d1.hef
+  score_threshold: 0.5
+  nms_threshold: 0.4
+  max_faces: 10
+
 # Face database management
 database:
   # Enable persistent storage of face embeddings
