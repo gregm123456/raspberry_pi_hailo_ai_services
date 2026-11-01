@@ -131,7 +131,8 @@ def build_gradio_interface() -> gr.Blocks:
         css=(
             ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
             ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
-            ".face-crops-gallery img{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;max-width:100%;height:auto;object-fit:contain;}"
+            ".face-crops-gallery .gallery-item{height:auto !important;min-height:unset !important;}"
+            ".face-crops-gallery img{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;max-width:100%;height:auto;object-fit:contain !important;}"
         )
     ) as demo:
         gr.Markdown("# Hailo AI Services Portal")
