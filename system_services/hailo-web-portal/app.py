@@ -551,7 +551,7 @@ def build_gradio_interface() -> gr.Blocks:
                 gr.Markdown(
                     "### Face Detection and Attribute Estimates\n"
                     "SCRFD detects faces; MiVOLO estimates age and gender scores. "
-                    "These are model estimates, not verified attributes."
+                    "These are model estimates, not verified attributes!"
                 )
                 with gr.Tabs():
                     with gr.TabItem("Analyze"):
