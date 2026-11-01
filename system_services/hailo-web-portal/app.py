@@ -131,8 +131,10 @@ def build_gradio_interface() -> gr.Blocks:
         css=(
             ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
             ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
-            ".face-crops-gallery .gallery-item{height:auto !important;width:auto !important;}"
-            ".face-crops-gallery .gallery-item img{width:auto !important;height:auto !important;max-width:none !important;max-height:none !important;}"
+            ".face-crops-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;}"
+            ".face-crop-item{display:flex;flex-direction:column;align-items:center;justify-content:center;aspect-ratio:1.2/1;border:1px solid #ddd;border-radius:8px;padding:8px;background:#f5f5f5;}"
+            ".face-crop-item img{width:100%;height:100%;object-fit:contain;border-radius:4px;}"
+            ".face-crop-caption{font-size:12px;text-align:center;margin-top:8px;color:#666;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
         )
     ) as demo:
         gr.Markdown("# Hailo AI Services Portal")
@@ -566,20 +568,24 @@ def build_gradio_interface() -> gr.Blocks:
                                 face_performance = gr.Textbox(
                                     label="Performance", interactive=False
                                 )
-                        face_crops = gr.Gallery(
-                            label="Detected face crops", columns=3, elem_classes="face-crops-gallery"
+                        
+                        # Dynamic gallery using HTML grid for better aspect ratio preservation
+                        face_crops_container = gr.HTML(
+                            value="<div class='face-crops-grid'></div>",
+                            label="Detected face crops"
                         )
                         face_results = gr.JSON(label="Face results")
 
                         async def analyze_faces(
                             image_path: str,
-                        ) -> Tuple[List[Tuple[Image.Image, str]], Dict[str, Any], str]:
+                        ) -> Tuple[str, Dict[str, Any], str]:
                             if not image_path:
-                                return [], {"error": "No image provided"}, ""
+                                return "<div class='face-crops-grid'></div>", {"error": "No image provided"}, ""
                             result = await face_client.estimate_attributes(image_path)
                             if "error" in result:
-                                return [], result, result["error"]
-                            crops = []
+                                return "<div class='face-crops-grid'></div>", result, result["error"]
+                            
+                            html_items = []
                             faces = []
                             for face in result.get("faces", []):
                                 visible_face = {
@@ -590,29 +596,35 @@ def build_gradio_interface() -> gr.Blocks:
                                 faces.append(visible_face)
                                 crop_uri = face.get("crop", "")
                                 if crop_uri.startswith("data:image/"):
-                                    crop_data = base64.b64decode(
-                                        crop_uri.split(",", 1)[1], validate=True
-                                    )
-                                    crop_image = Image.open(
-                                        io.BytesIO(crop_data)
-                                    ).convert("RGB")
                                     caption = (
                                         f"Age {face.get('age_years', 'N/A')}; "
                                         f"{face.get('gender', 'unknown')} "
                                         f"({face.get('gender_scores', {})})"
                                     )
-                                    crops.append((crop_image, caption))
+                                    # Create HTML for image item with caption
+                                    html_items.append(
+                                        f'<div class="face-crop-item">'
+                                        f'  <img src="{crop_uri}" alt="face crop" />'
+                                        f'  <div class="face-crop-caption">{caption}</div>'
+                                        f'</div>'
+                                    )
+                            
+                            html_content = (
+                                '<div class="face-crops-grid">'
+                                + ''.join(html_items)
+                                + '</div>'
+                            )
                             visible_result = {**result, "faces": faces}
                             timing = (
                                 f"{result.get('count', 0)} faces; "
                                 f"{result.get('inference_time_ms', 0):.1f} ms"
                             )
-                            return crops, visible_result, timing
+                            return html_content, visible_result, timing
 
                         face_analyze_btn.click(
                             fn=analyze_faces,
                             inputs=[face_image],
-                            outputs=[face_crops, face_results, face_performance],
+                            outputs=[face_crops_container, face_results, face_performance],
                         )
 
                     with gr.TabItem("Info"):
