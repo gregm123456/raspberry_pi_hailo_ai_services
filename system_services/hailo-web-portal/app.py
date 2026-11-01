@@ -566,9 +566,10 @@ def build_gradio_interface() -> gr.Blocks:
                                 face_performance = gr.Textbox(
                                     label="Performance", interactive=False
                                 )
-                        face_crops = gr.Gallery(
-                            label="Detected face crops", columns=3, elem_classes="face-crops-gallery"
-                        )
+                        with gr.Column(scale=0, min_width=600):
+                            face_crops = gr.Gallery(
+                                label="Detected face crops", columns=3, elem_classes="face-crops-gallery"
+                            )
                         face_results = gr.JSON(label="Face results")
 
                         async def analyze_faces(
