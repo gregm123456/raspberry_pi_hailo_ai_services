@@ -75,10 +75,12 @@ Hailo-10H path. Do not use the mock identity results for real recognition.
 the Device Manager.
 
 **Inference flow:**
-1. Resize an RGB image to 640x384 and submit it to the public v5.5.0 SCRFD
+1. Resize an RGB image to fit inside 640x384 without changing its aspect
+   ratio, pad the remaining area, and submit it to the public v5.5.0 SCRFD
    2.5g HEF using the Device Manager `tensor` handler.
 2. Decode the three SCRFD output scales on the CPU, apply confidence filtering
-   and NMS, and map boxes/landmarks back to the source image.
+   and NMS, and undo the resize/padding when mapping boxes and landmarks to the
+   source image.
 3. For each detected face, create a 224x224x6 MiVOLO input from the face crop
    and a zero-filled person crop (MiVOLO face-only mode).
 4. Return MiVOLO's age output and softmaxed gender scores with the face crop.

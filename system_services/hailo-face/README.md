@@ -17,9 +17,18 @@ use mock inference; do not use those endpoints as real biometric recognition.
 
 ## Architecture
 
-The service wraps Hailo's face recognition pipeline with a Flask REST API and provides:
-- **Detection Model:** SCRFD-10G or RetinaFace for face detection
-- **Recognition Model:** ArcFace MobileFaceNet for embedding extraction
+The Flask REST API's verified `/v1/attributes` path uses the Hailo-10H
+**SCRFD-2.5G** model (`scrfd_2.5g_384_640.hef`) with MiVOLO for age/gender
+estimates. The `2.5G` designation describes the model's compute tier, not its
+HEF file size; the compiled HEF is approximately 245 MB.
+
+The separate embedding and identity-recognition endpoints are prototypes that
+still use mock inference. Their legacy `face_recognition.detection_model`
+setting may say `scrfd_10g`, but it does not select or load the model used by
+`/v1/attributes`.
+
+- **Face attributes:** SCRFD-2.5G + MiVOLO
+- **Prototype recognition:** ArcFace MobileFaceNet configuration; inference is mocked
 - **Database:** SQLite for persistent identity storage
 - **systemd Integration:** Managed service with automatic restart
 

@@ -64,6 +64,37 @@ def _nms(boxes: np.ndarray, scores: np.ndarray, threshold: float) -> list[int]:
     return kept
 
 
+def _scrfd_resize_geometry(
+    original_size: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    original_width, original_height = original_size
+    scale = min(SCRFD_WIDTH / original_width, SCRFD_HEIGHT / original_height)
+    resized_width = min(SCRFD_WIDTH, max(1, round(original_width * scale)))
+    resized_height = min(SCRFD_HEIGHT, max(1, round(original_height * scale)))
+    pad_left = (SCRFD_WIDTH - resized_width) // 2
+    pad_top = (SCRFD_HEIGHT - resized_height) // 2
+    return resized_width, resized_height, pad_left, pad_top
+
+
+def prepare_scrfd_input(image: np.ndarray) -> np.ndarray:
+    original_height, original_width = image.shape[:2]
+    resized_width, resized_height, pad_left, pad_top = _scrfd_resize_geometry(
+        (original_width, original_height)
+    )
+    resized = np.asarray(
+        Image.fromarray(image).resize(
+            (resized_width, resized_height), Image.Resampling.BILINEAR
+        ),
+        dtype=np.uint8,
+    )
+    framed = np.zeros((SCRFD_HEIGHT, SCRFD_WIDTH, 3), dtype=np.uint8)
+    framed[
+        pad_top:pad_top + resized_height,
+        pad_left:pad_left + resized_width,
+    ] = resized
+    return framed
+
+
 def postprocess_scrfd(
     outputs: dict[str, Any],
     original_size: tuple[int, int],
@@ -134,16 +165,27 @@ def postprocess_scrfd(
     landmarks = landmarks[candidates]
     kept = _nms(boxes, scores, nms_threshold)[:max_faces]
     original_width, original_height = original_size
-    scale_x = original_width / SCRFD_WIDTH
-    scale_y = original_height / SCRFD_HEIGHT
+    resized_width, resized_height, pad_left, pad_top = _scrfd_resize_geometry(
+        original_size
+    )
+    scale_x = resized_width / original_width
+    scale_y = resized_height / original_height
     results = []
     for index in kept:
         x1, y1, x2, y2 = boxes[index]
-        x1, x2 = np.clip((x1, x2), 0, SCRFD_WIDTH) * scale_x
-        y1, y2 = np.clip((y1, y2), 0, SCRFD_HEIGHT) * scale_y
+        x1, x2 = np.clip(
+            (x1 - pad_left, x2 - pad_left), 0, resized_width
+        ) / scale_x
+        y1, y2 = np.clip(
+            (y1 - pad_top, y2 - pad_top), 0, resized_height
+        ) / scale_y
         points = landmarks[index].copy()
-        points[:, 0] = np.clip(points[:, 0], 0, SCRFD_WIDTH) * scale_x
-        points[:, 1] = np.clip(points[:, 1], 0, SCRFD_HEIGHT) * scale_y
+        points[:, 0] = np.clip(
+            points[:, 0] - pad_left, 0, resized_width
+        ) / scale_x
+        points[:, 1] = np.clip(
+            points[:, 1] - pad_top, 0, resized_height
+        ) / scale_y
         results.append(
             {
                 "bbox": [
@@ -248,12 +290,7 @@ class FaceAttributePipeline:
         await client.connect()
         started = time.monotonic()
         try:
-            resized = np.asarray(
-                Image.fromarray(image).resize(
-                    (SCRFD_WIDTH, SCRFD_HEIGHT), Image.Resampling.BILINEAR
-                ),
-                dtype=np.uint8,
-            )
+            resized = prepare_scrfd_input(image)
             detection = await client.infer(
                 str(self.scrfd_hef),
                 {"input": _encode_tensor(resized)},

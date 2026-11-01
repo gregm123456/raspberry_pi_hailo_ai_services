@@ -14,19 +14,20 @@ from face_attributes import (
     _encode_tensor,
     decode_mivolo_output,
     postprocess_scrfd,
+    prepare_scrfd_input,
     prepare_mivolo_face_input,
 )
 
 
-def _scrfd_outputs() -> dict[str, dict]:
+def _scrfd_outputs(cell_x: int = 2) -> dict[str, dict]:
     outputs = {}
     for level, (height, width) in enumerate(((48, 80), (24, 40), (12, 20))):
         boxes = np.zeros((1, height, width, 8), dtype=np.float32)
         scores = np.zeros((1, height, width, 2), dtype=np.float32)
         landmarks = np.zeros((1, height, width, 20), dtype=np.float32)
         if level == 0:
-            boxes[0, 3, 2, :4] = 1.0
-            scores[0, 3, 2, 0] = 0.9
+            boxes[0, 3, cell_x, :4] = 1.0
+            scores[0, 3, cell_x, 0] = 0.9
         outputs[f"box_{level}"] = _encode_tensor(boxes)
         outputs[f"score_{level}"] = _encode_tensor(scores)
         outputs[f"landmark_{level}"] = _encode_tensor(landmarks)
@@ -71,6 +72,21 @@ class FaceAttributeTests(unittest.TestCase):
         self.assertEqual(faces[0]["bbox"], [8, 16, 16, 16])
         self.assertAlmostEqual(faces[0]["confidence"], 0.9)
         self.assertEqual(len(faces[0]["landmarks"]), 5)
+
+    def test_prepares_scrfd_input_without_distorting_portrait(self) -> None:
+        image = np.full((640, 320, 3), 127, dtype=np.uint8)
+        tensor = prepare_scrfd_input(image)
+        self.assertEqual(tensor.shape, (384, 640, 3))
+        self.assertTrue(np.all(tensor[:, :224] == 0))
+        self.assertTrue(np.all(tensor[:, 416:] == 0))
+        self.assertTrue(np.all(tensor[:, 224:416] == 127))
+
+    def test_maps_letterboxed_scrfd_boxes_to_portrait_image(self) -> None:
+        faces = postprocess_scrfd(
+            _scrfd_outputs(cell_x=30), original_size=(320, 640)
+        )
+        self.assertEqual(len(faces), 1)
+        self.assertEqual(faces[0]["bbox"], [13, 27, 27, 27])
 
     def test_prepares_face_only_six_channel_input(self) -> None:
         image = np.full((10, 20, 3), 127, dtype=np.uint8)
