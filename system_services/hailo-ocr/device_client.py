@@ -138,34 +138,49 @@ class HailoDeviceClient:
     async def _send_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Send request and get response."""
         async with self._lock:
-            if not self.writer:
-                await self.connect()
-
             request_id = request.get("request_id", str(uuid.uuid4()))
             request["request_id"] = request_id
 
-            try:
-                await _write_message(self.writer, request, self.max_message_bytes)
-                response = await asyncio.wait_for(
-                    _read_message(self.reader, self.max_message_bytes),
-                    timeout=self.timeout,
-                )
-                if not response:
-                    raise RuntimeError("Device manager connection closed")
-            except asyncio.TimeoutError:
-                await self.disconnect()
-                raise RuntimeError("Request timeout")
-            except Exception as e:
-                await self.disconnect()
-                raise RuntimeError(f"Request failed: {e}")
+            for attempt in range(2):
+                if not self.writer or self.writer.is_closing():
+                    await self.connect()
 
-            if response.get("request_id") != request_id:
-                raise RuntimeError("Mismatched response request_id")
+                try:
+                    await _write_message(
+                        self.writer, request, self.max_message_bytes
+                    )
+                    response = await asyncio.wait_for(
+                        _read_message(self.reader, self.max_message_bytes),
+                        timeout=self.timeout,
+                    )
+                    if response is None:
+                        raise ConnectionError("Device manager connection closed")
+                except asyncio.TimeoutError:
+                    await self.disconnect()
+                    raise RuntimeError("Request timeout")
+                except (ConnectionError, asyncio.IncompleteReadError) as e:
+                    await self.disconnect()
+                    if attempt == 0:
+                        logger.warning(
+                            "Device manager connection lost; reconnecting and retrying request"
+                        )
+                        continue
+                    raise RuntimeError(
+                        f"Request failed after reconnect: {e}"
+                    ) from e
+                except Exception as e:
+                    await self.disconnect()
+                    raise RuntimeError(f"Request failed: {e}") from e
 
-            if "error" in response:
-                raise RuntimeError(f"Device manager error: {response['error']}")
+                if response.get("request_id") != request_id:
+                    raise RuntimeError("Mismatched response request_id")
 
-            return response
+                if "error" in response:
+                    raise RuntimeError(f"Device manager error: {response['error']}")
+
+                return response
+
+            raise RuntimeError("Device manager request retry was exhausted")
     
     async def ping(self) -> Dict[str, Any]:
         """Ping device manager to verify connection."""

@@ -15,6 +15,10 @@ Images can be provided via:
 
 Supported formats: JPEG, PNG, WebP
 
+Images are decoded to RGB before resizing and central cropping to the model's
+336x336 input. RGB channel order is preserved for data URIs, URLs, and local
+files.
+
 ### Generation Options
 
 - `temperature` (float) — Sampling temperature (0.0 = deterministic, 1.0 = normal; default: 0.7)

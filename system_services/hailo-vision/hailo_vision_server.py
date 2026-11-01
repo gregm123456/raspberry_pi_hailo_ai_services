@@ -106,36 +106,33 @@ class VisionServiceConfig:
             raise
 
 def decode_image_from_url(image_url: str) -> np.ndarray:
-    """Decode image from URL or base64 data URI."""
+    """Decode an image URL or data URI into an RGB array."""
     
     if image_url.startswith('data:image'):
         # Handle base64 data URI
         header, encoded = image_url.split(',', 1)
         image_data = base64.b64decode(encoded)
         image = Image.open(io.BytesIO(image_data))
-        return np.array(image)
     elif image_url.startswith('http://') or image_url.startswith('https://'):
         # Handle HTTP/HTTPS URL
         response = requests.get(image_url, timeout=10)
         response.raise_for_status()
         image = Image.open(io.BytesIO(response.content))
-        return np.array(image)
     elif image_url.startswith('file://'):
         # Handle file:// URI
         file_path = image_url[7:]  # Remove 'file://'
         image = Image.open(file_path)
-        return np.array(image)
     else:
         # Assume it's a file path
         image = Image.open(image_url)
-        return np.array(image)
+    return np.array(image.convert("RGB"))
 
 
 def preprocess_image_for_vlm(image_array: np.ndarray, target_size: tuple = (336, 336)) -> np.ndarray:
     """Preprocess image for VLM inference using central crop.
     
     Args:
-        image_array: Input image in any format (RGB, BGR, RGBA, etc.)
+        image_array: RGB image, or grayscale/RGBA data to convert to RGB
         target_size: Target size (width, height), default (336, 336)
     
     Returns:
@@ -149,11 +146,14 @@ def preprocess_image_for_vlm(image_array: np.ndarray, target_size: tuple = (336,
         if image_array.shape[2] == 4:
             # RGBA to RGB
             image_array = cv2.cvtColor(image_array, cv2.COLOR_RGBA2RGB)
-        elif image_array.shape[2] == 3:
-            # Assume BGR (OpenCV default) - convert to RGB
-            # PIL images are already RGB, but we can't tell, so we check pixel order
-            # Safe approach: always convert from BGR to RGB for consistency
-            image_array = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+        elif image_array.shape[2] != 3:
+            raise ValueError(
+                f"Expected an RGB, grayscale, or RGBA image; got {image_array.shape}"
+            )
+    else:
+        raise ValueError(
+            f"Expected an RGB, grayscale, or RGBA image; got {image_array.shape}"
+        )
     
     h, w = image_array.shape[:2]
     target_w, target_h = target_size

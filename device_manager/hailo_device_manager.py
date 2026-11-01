@@ -949,6 +949,7 @@ class HailoDeviceManager:
         )
         self._total_evictions: int = 0
         self._runtime_broken_reason: Optional[str] = None
+        self._restart_scheduled = False
         self._last_capacity_event_reason: Optional[str] = None
         self._last_capacity_event_model: Optional[str] = None
         self._last_capacity_event_at: Optional[float] = None
@@ -1130,6 +1131,33 @@ class HailoDeviceManager:
             future.set_result(response)
             self._request_queue.task_done()
             self._queue_depth = max(0, self._queue_depth - 1)
+            if self._runtime_broken_reason:
+                self._schedule_restart_for_broken_runtime(loop)
+
+    def _schedule_restart_for_broken_runtime(
+        self, loop: asyncio.AbstractEventLoop
+    ) -> None:
+        if self._restart_scheduled:
+            return
+
+        self._restart_scheduled = True
+        logger.critical(
+            "Hailo runtime is unavailable; requesting a supervised manager restart"
+        )
+        loop.call_later(
+            0.5,
+            os.kill,
+            os.getpid(),
+            signal.SIGTERM,
+        )
+        loop.call_later(5.0, self._force_kill_after_restart_timeout)
+
+    def _force_kill_after_restart_timeout(self) -> None:
+        """Ensure systemd can restart the manager if graceful shutdown stalls."""
+        logger.critical(
+            "Manager shutdown is still blocked; forcing exit for systemd restart"
+        )
+        os.kill(os.getpid(), signal.SIGKILL)
 
     async def handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -1263,7 +1291,11 @@ class HailoDeviceManager:
             )
 
         return {
-            "status": "ok",
+            "status": (
+                "error"
+                if self._runtime_broken_reason or "identify_error" in device_info
+                else "ok"
+            ),
             "device": device_info,
             "networks": networks,
             "uptime_seconds": time.time() - self.start_time,
@@ -1306,6 +1338,8 @@ class HailoDeviceManager:
 
         try:
             self._http_server = http.server.ThreadingHTTPServer((host, port), StatusHandler)
+            self._http_server.daemon_threads = True
+            self._http_server.block_on_close = False
         except OSError as exc:
             logger.error("Failed to start HTTP server on %s:%s: %s", host, port, exc)
             self._http_server = None
@@ -1355,6 +1389,36 @@ class HailoDeviceManager:
             or message == "81"
             or message.endswith("(81)")
         )
+
+    @staticmethod
+    def _is_runtime_context_failure(exc: Exception) -> bool:
+        message = str(exc).strip().upper()
+        return (
+            "HAILO_SHUTDOWN_EVENT_SIGNALED" in message
+            or "HAILO_COMMUNICATION_CLOSED" in message
+            or "COMMUNICATION CLOSED FAILURE" in message
+            or message in {"57", "62"}
+            or message.endswith("(57)")
+            or message.endswith("(62)")
+        )
+
+    def _reset_after_runtime_failure(
+        self, model_path: str, phase: str, exc: Exception
+    ) -> bool:
+        reason = (
+            f"Hailo runtime failure during {phase} of "
+            f"{Path(model_path).name}: {exc}"
+        )
+        logger.error("%s; rebuilding runtime context", reason)
+        try:
+            self._reset_runtime_context()
+        except Exception as reset_error:
+            self._runtime_broken_reason = (
+                f"{reason}; runtime reset failed: {reset_error}"
+            )
+            logger.error(self._runtime_broken_reason)
+            return False
+        return True
 
     def _evict_lru(self, reason: Optional[str] = None) -> Optional[str]:
         """Unload the least-recently-used model from VRAM.
@@ -1426,6 +1490,7 @@ class HailoDeviceManager:
         # so the runtime-context reset path can run instead of failing immediately.
         eviction_limit = max(self.max_evictions, len(self.loaded_models) + 1)
         reset_attempted = False
+        runtime_retry_attempted = False
         aggressive_sweep_done = False
         while True:
             ensure_error = self._ensure_runtime_context()
@@ -1525,6 +1590,23 @@ class HailoDeviceManager:
                         eviction_limit,
                     )
                     # loop and retry
+                elif self._is_runtime_context_failure(e):
+                    if not runtime_retry_attempted:
+                        runtime_retry_attempted = True
+                        if self._reset_after_runtime_failure(
+                            model_path, "loading", e
+                        ):
+                            logger.warning(
+                                "Retrying model load once after runtime recovery: %s",
+                                model_path,
+                            )
+                            continue
+                    else:
+                        self._reset_after_runtime_failure(
+                            model_path, "retrying load", e
+                        )
+                    logger.error("Failed to load model %s: %s", model_path, e)
+                    return {"error": f"Failed to load model: {e}"}
                 else:
                     logger.error("Failed to load model %s: %s", model_path, e)
                     return {"error": f"Failed to load model: {e}"}
@@ -1561,6 +1643,8 @@ class HailoDeviceManager:
             }
         except Exception as e:
             logger.error("Inference failed: %s", e)
+            if self._is_runtime_context_failure(e):
+                self._reset_after_runtime_failure(model_path, "inference", e)
             return {"error": f"Inference failed: {e}"}
 
     def _unload_model(self, request: Dict[str, Any]) -> Dict[str, Any]:
@@ -1582,6 +1666,8 @@ class HailoDeviceManager:
             return {"status": "ok", "message": "Model unloaded"}
         except Exception as e:
             logger.error("Failed to unload model: %s", e)
+            if self._is_runtime_context_failure(e):
+                self._reset_after_runtime_failure(model_path, "unloading", e)
             return {"error": str(e)}
 
     async def start_server(self) -> None:

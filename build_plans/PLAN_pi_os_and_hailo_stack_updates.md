@@ -350,3 +350,13 @@ stack, or the reason for staying on the old stack is documented. Then we can
 plan the new models and Gradio features separately.
 
 - Final Vision check after reboot (2026-10-31): verified image-dependent responses for `dog.png`, `card.png`, and `text.png`; Step 4 is complete.
+
+### Post-update stabilization (2026-10-31)
+
+- **Vision RGB/BGR bug:** PIL-decoded RGB images were treated as BGR (red and blue swapped). Fixed in `hailo_vision_server.py`, with regression tests and API_SPEC note.
+- **Device Manager recovery:** With several models cached, a load hit `HAILO_RESOURCE_EXHAUSTED`, then VDevice recreation failed with `HAILO_OUT_OF_PHYSICAL_DEVICES` and the manager stayed broken. The manager now requests a supervised restart when the runtime is unrecoverable, forces exit after 5 s if graceful shutdown stalls (a stalled stop previously left it "active" with no socket), and no longer blocks shutdown on status-HTTP handler threads.
+- **Stale sockets:** After a manager restart, clients failed once with `Connection lost`. The shared client (and the Whisper, OCR, Pose copies) now reconnect and retry once on transport failures only.
+- **Portal:** No longer polls `hailortcli monitor` directly; unavailable metrics display safely.
+- **Caveat:** The portal has `Requires=hailo-device-manager.service`, so a manager restart also restarts the portal and waits for it to stop; a live Gradio session can delay it.
+- **Verification:** 18 unit tests pass. Greg rebooted and tested every service individually (models unloaded between runs); all worked. Running all models loaded at once can still exhaust device resources; the recovery path above is unit-tested but was not reproduced live.
+- **Out of scope:** Florence excluded; Ollama untested.

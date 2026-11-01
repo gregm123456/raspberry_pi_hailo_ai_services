@@ -180,7 +180,7 @@ def build_gradio_interface() -> gr.Blocks:
                 subtitle_text += f"  \nLast capacity event: {capacity_reason}"
             
             device = status_data.get("device", {})
-            temp_c = device.get("temperature_celsius", 0)
+            temp_c = device.get("temperature_celsius")
             temp_gauge_html = create_temperature_gauge_html(temp_c)
             
             networks = format_networks_table(status_data)

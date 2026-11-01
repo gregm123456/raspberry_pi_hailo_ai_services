@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 # Temperature thresholds for Hailo-10H on Raspberry Pi 5
@@ -175,7 +175,7 @@ def format_networks_table(status_data: Dict[str, Any]) -> List[List[str]]:
     return table_rows
 
 
-def create_temperature_gauge_html(temp_celsius: float) -> str:
+def create_temperature_gauge_html(temp_celsius: Optional[float]) -> str:
     """Create an SVG gauge widget for temperature display.
     
     Args:
@@ -184,6 +184,15 @@ def create_temperature_gauge_html(temp_celsius: float) -> str:
     Returns:
         HTML/SVG markup for temperature gauge
     """
+    if temp_celsius is None:
+        return """
+        <div style="text-align: center; padding: 12px;">
+            <div style="font-size: 13px; font-weight: 600; color: #777;">Temperature</div>
+            <div style="font-size: 24px; font-weight: bold; color: #777;">N/A</div>
+            <div style="font-size: 12px; color: #777;">Device status unavailable</div>
+        </div>
+        """
+
     color = get_temperature_color(temp_celsius)
     status = get_temperature_status(temp_celsius)
     
@@ -353,7 +362,7 @@ def create_ram_overview_html(status_data: Dict[str, Any]) -> str:
         return """
         <div style="padding:10px 14px;border:1px solid #2f3138;border-radius:8px;background:#111318;color:#c9ccd4;">
           <div style="font-size:13px;font-weight:600;margin-bottom:4px;">NPU Memory</div>
-          <div style="font-size:12px;opacity:0.85;">RAM metrics unavailable (hailortcli monitor not ready).</div>
+          <div style="font-size:12px;opacity:0.85;">NPU RAM/utilization metrics are unavailable; Device Manager retains exclusive device access.</div>
         </div>
         """
 

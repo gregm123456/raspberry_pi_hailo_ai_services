@@ -275,6 +275,21 @@ Common errors:
 - `tensor must include dtype, shape, and data_b64`
 - `Message too large: <bytes> bytes`
 
+HailoRT shutdown and communication-closed errors during model loading or
+inference trigger a Device Manager runtime reset. Model loading is retried once
+after a successful reset; if the retry also fails, the request returns an
+`error` and the manager resets the context again so later requests can recover.
+If the reset itself fails, `device_status` reports `status: "error"` and
+includes the failure in `runtime_broken_reason`. If the runtime remains
+unavailable, the manager finishes the current response and requests a
+supervised restart; systemd restarts the manager, and clients should reconnect
+and retry the failed inference. If graceful shutdown remains blocked, the
+manager forces its own exit after five seconds so systemd can complete restart.
+
+The bundled async client retries once after a socket transport failure, which
+can occur while the manager restarts. It does not retry manager error responses
+or request timeouts.
+
 ## Limits
 
 - Maximum message size: `HAILO_DEVICE_MAX_MESSAGE_BYTES` (default 8 MiB)
