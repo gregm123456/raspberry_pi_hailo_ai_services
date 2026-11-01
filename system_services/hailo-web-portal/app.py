@@ -131,8 +131,8 @@ def build_gradio_interface() -> gr.Blocks:
         css=(
             ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
             ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
-            ".face-crops-gallery .gallery-item{height:auto !important;min-height:unset !important;}"
-            ".face-crops-gallery img{image-rendering:pixelated;image-rendering:-moz-crisp-edges;image-rendering:crisp-edges;max-width:100%;height:auto;object-fit:contain !important;}"
+            ".face-crops-gallery .gallery-item{height:auto !important;width:auto !important;}"
+            ".face-crops-gallery .gallery-item img{width:auto !important;height:auto !important;max-width:none !important;max-height:none !important;}"
         )
     ) as demo:
         gr.Markdown("# Hailo AI Services Portal")
@@ -597,12 +597,6 @@ def build_gradio_interface() -> gr.Blocks:
                                     crop_image = Image.open(
                                         io.BytesIO(crop_data)
                                     ).convert("RGB")
-                                    # Upscale using nearest-neighbor to preserve 1:1 crisp pixels
-                                    # If image is small, scale it up by 2x-3x to be readable without interpolation
-                                    if crop_image.width < 150 or crop_image.height < 150:
-                                        scale_factor = max(2, int(150 / max(crop_image.width, crop_image.height)))
-                                        new_size = (crop_image.width * scale_factor, crop_image.height * scale_factor)
-                                        crop_image = crop_image.resize(new_size, Image.Resampling.NEAREST)
                                     caption = (
                                         f"Age {face.get('age_years', 'N/A')}; "
                                         f"{face.get('gender', 'unknown')} "
