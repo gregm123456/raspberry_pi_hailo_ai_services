@@ -125,19 +125,18 @@ async def disable_service(service_name: str) -> Dict[str, str]:
     return await service_mgr.disable_service(service_name)
 
 
+PORTAL_CSS = (
+    ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
+    ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
+    ".face-crops-grid{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;}"
+    ".face-crop-item{display:flex;flex-direction:row;align-items:center;gap:12px;max-width:100%;border:1px solid var(--border-color-primary);border-radius:8px;padding:8px;background:var(--background-fill-secondary);}"
+    ".face-crop-item img{display:block;width:auto;height:auto;max-width:60%;flex:0 0 auto;border-radius:4px;}"
+    ".face-crop-caption{font-size:13px;line-height:1.5;color:var(--body-text-color);min-width:150px;}"
+)
+
+
 def build_gradio_interface() -> gr.Blocks:
-    with gr.Blocks(
-        title="Hailo AI Services Portal",
-        theme=gr.themes.Soft(),
-        css=(
-            ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
-            ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
-            ".face-crops-grid{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;}"
-            ".face-crop-item{display:flex;flex-direction:column;max-width:100%;border:1px solid var(--border-color-primary);border-radius:8px;padding:8px;background:var(--background-fill-secondary);}"
-            ".face-crop-item img{display:block;width:auto;height:auto;max-width:100%;border-radius:4px;}"
-            ".face-crop-caption{font-size:12px;margin-top:8px;color:var(--body-text-color-subdued);max-width:100%;overflow-wrap:anywhere;}"
-        )
-    ) as demo:
+    with gr.Blocks(title="Hailo AI Services Portal") as demo:
         gr.Markdown("# Hailo AI Services Portal")
         with gr.Row():
             with gr.Column(scale=0, min_width=40):
@@ -597,16 +596,24 @@ def build_gradio_interface() -> gr.Blocks:
                                 faces.append(visible_face)
                                 crop_uri = face.get("crop", "")
                                 if crop_uri.startswith("data:image/"):
-                                    caption = (
-                                        f"Age {face.get('age_years', 'N/A')}; "
-                                        f"{face.get('gender', 'unknown')} "
-                                        f"({face.get('gender_scores', {})})"
+                                    scores = face.get("gender_scores", {})
+
+                                    def fmt_score(key: str) -> str:
+                                        value = scores.get(key)
+                                        return f"{value:.3f}" if isinstance(value, (int, float)) else "n/a"
+
+                                    lines = [
+                                        f"Age {face.get('age_years', 'N/A')}",
+                                        str(face.get("gender", "unknown")).capitalize(),
+                                        f"female {fmt_score('female')} · male {fmt_score('male')}",
+                                    ]
+                                    caption_html = "".join(
+                                        f"<div>{html.escape(line)}</div>" for line in lines
                                     )
-                                    # Create HTML for image item with caption
                                     html_items.append(
                                         f'<div class="face-crop-item">'
-                                        f'  <img src="{crop_uri}" alt="face crop" />'
-                                        f'  <div class="face-crop-caption">{html.escape(caption)}</div>'
+                                        f'<img src="{crop_uri}" alt="face crop" />'
+                                        f'<div class="face-crop-caption">{caption_html}</div>'
                                         f'</div>'
                                     )
                             
@@ -1334,7 +1341,7 @@ def build_gradio_interface() -> gr.Blocks:
 
 
 gradio_demo = build_gradio_interface()
-app = gr.mount_gradio_app(app, gradio_demo, path="/")
+app = gr.mount_gradio_app(app, gradio_demo, path="/", css=PORTAL_CSS)
 
 
 @app.on_event("startup")
