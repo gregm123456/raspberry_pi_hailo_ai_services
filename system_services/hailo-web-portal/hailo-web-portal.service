@@ -8,6 +8,7 @@ Requires=hailo-device-manager.service
 Type=simple
 User=hailo
 Group=hailo
+SupplementaryGroups=hailo-device-mgr
 WorkingDirectory=/opt/hailo-web-portal
 ExecStart=/opt/hailo-web-portal/venv/bin/python /opt/hailo-web-portal/app.py
 Restart=always

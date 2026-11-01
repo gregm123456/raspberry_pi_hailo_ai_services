@@ -273,6 +273,12 @@ _MODEL_COLORS = [
 ]
 
 
+# Hailo-10H has 8 GB of on-board DRAM; per-weight size is a rough calibration.
+_ESTIMATED_TOTAL_MB = 8192.0
+_ESTIMATED_MB_PER_WEIGHT = 300.0
+_ESTIMATED_RUNTIME_MB = 200.0
+
+
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -356,6 +362,20 @@ def create_ram_overview_html(status_data: Dict[str, Any]) -> str:
     used_mb = _safe_float(ram.get("used_mb"), 0.0)
     total_mb = _safe_float(ram.get("total_mb"), 0.0)
     util_pct = _safe_float(ram.get("utilization_percent"), 0.0)
+    estimated = False
+
+    if total_mb <= 0.0 and networks:
+        # Device Manager owns the device and exposes no RAM counters, so
+        # approximate usage from the loaded-model weights.
+        estimated = True
+        total_mb = _ESTIMATED_TOTAL_MB
+        used_mb = min(
+            sum(_estimate_model_weights(networks)) * _ESTIMATED_MB_PER_WEIGHT
+            + _ESTIMATED_RUNTIME_MB,
+            total_mb,
+        )
+        util_pct = used_mb / total_mb * 100.0
+
     free_mb = max(total_mb - used_mb, 0.0)
 
     if total_mb <= 0.0:
@@ -455,13 +475,20 @@ def create_ram_overview_html(status_data: Dict[str, Any]) -> str:
             "</div>"
         )
 
+    badge = (
+        ' <span style="margin-left:6px;padding:1px 7px;border-radius:10px;'
+        'background:#ffb74d;color:#111;font-size:10px;font-weight:700;">ESTIMATE</span>'
+        if estimated
+        else ""
+    )
+
     return f"""
     <div style="padding:10px 14px;border:1px solid #2f3138;border-radius:8px;background:#111318;color:#c9ccd4;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;">
-        <div style="font-size:13px;font-weight:600;">NPU Memory</div>
-        <div style="font-size:11px;opacity:0.85;">NNC {nnc_util:.1f}% | CPU {cpu_util:.1f}% | RAM {util_pct:.1f}%</div>
+        <div style="font-size:13px;font-weight:600;">NPU Memory{badge}</div>
+        <div style="font-size:11px;opacity:0.85;">NNC {nnc_util:.1f}% | CPU {cpu_util:.1f}% | RAM {util_pct:.1f}%{" (estimated)" if estimated else ""}</div>
       </div>
-      <div style="margin-top:6px;font-size:12px;opacity:0.9;">Used {used_mb:.0f} MB / {total_mb:.0f} MB, Free {free_mb:.0f} MB</div>
+      <div style="margin-top:6px;font-size:12px;opacity:0.9;">{"Estimated from loaded models: " if estimated else ""}Used {used_mb:.0f} MB / {total_mb:.0f} MB, Free {free_mb:.0f} MB</div>
       <div style="margin-top:8px;height:16px;border-radius:4px;overflow:hidden;background:#1d212b;display:flex;">
         {''.join(segments_html)}
       </div>

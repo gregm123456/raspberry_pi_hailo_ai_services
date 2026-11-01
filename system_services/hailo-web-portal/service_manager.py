@@ -1,8 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import os
+import struct
 import subprocess
 from typing import Dict, List
+
+import aiohttp
+
+logger = logging.getLogger(__name__)
+
+DEVICE_SOCKET = os.getenv("HAILO_DEVICE_SOCKET", "/run/hailo/device.sock")
+DEVICE_STATUS_URL = os.getenv(
+    "HAILO_DEVICE_STATUS_URL", "http://127.0.0.1:5099/v1/device/status"
+)
 
 
 class ServiceManager:
@@ -61,7 +74,47 @@ class ServiceManager:
         return await self._run_systemctl(["start", service_name])
 
     async def stop_service(self, service_name: str) -> Dict[str, str]:
-        return await self._run_systemctl(["stop", service_name])
+        result = await self._run_systemctl(["stop", service_name])
+        if service_name != "hailo-device-manager":
+            await self._release_models(service_name)
+        return result
+
+    async def _release_models(self, service_name: str) -> None:
+        """Unload a stopped service's models from the Device Manager.
+
+        Services don't reliably unload on shutdown, so their models would
+        otherwise stay resident (and shown as loaded) until LRU eviction.
+        Model files live under /var/lib/<service>/.
+        """
+        prefix = f"/var/lib/{service_name}/"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(DEVICE_STATUS_URL, timeout=5) as resp:
+                    status = await resp.json()
+            models = [
+                n for n in status.get("networks", {}).get("networks", [])
+                if str(n.get("model_path", "")).startswith(prefix)
+            ]
+            for net in models:
+                await self._unload_model(net["model_path"], net.get("model_type", "vlm"))
+        except Exception as exc:
+            logger.warning("Could not release models for %s: %s", service_name, exc)
+
+    @staticmethod
+    async def _unload_model(model_path: str, model_type: str) -> None:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_unix_connection(DEVICE_SOCKET), timeout=5
+        )
+        try:
+            body = json.dumps(
+                {"action": "unload_model", "model_path": model_path, "model_type": model_type}
+            ).encode()
+            writer.write(struct.pack(">I", len(body)) + body)
+            await writer.drain()
+            header = await asyncio.wait_for(reader.readexactly(4), timeout=30)
+            await reader.readexactly(struct.unpack(">I", header)[0])
+        finally:
+            writer.close()
 
     async def restart_service(self, service_name: str) -> Dict[str, str]:
         return await self._run_systemctl(["restart", service_name])
