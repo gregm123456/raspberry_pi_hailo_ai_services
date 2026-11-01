@@ -596,6 +596,12 @@ def build_gradio_interface() -> gr.Blocks:
                                     crop_image = Image.open(
                                         io.BytesIO(crop_data)
                                     ).convert("RGB")
+                                    # Upscale using nearest-neighbor to preserve 1:1 crisp pixels
+                                    # If image is small, scale it up by 2x-3x to be readable without interpolation
+                                    if crop_image.width < 150 or crop_image.height < 150:
+                                        scale_factor = max(2, int(150 / max(crop_image.width, crop_image.height)))
+                                        new_size = (crop_image.width * scale_factor, crop_image.height * scale_factor)
+                                        crop_image = crop_image.resize(new_size, Image.Resampling.NEAREST)
                                     caption = (
                                         f"Age {face.get('age_years', 'N/A')}; "
                                         f"{face.get('gender', 'unknown')} "
