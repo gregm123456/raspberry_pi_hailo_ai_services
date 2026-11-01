@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import html
 import io
 import os
 import re
@@ -131,10 +132,10 @@ def build_gradio_interface() -> gr.Blocks:
         css=(
             ".icon-button{width:36px !important;min-width:36px !important;max-width:36px !important;display:flex;align-items:center;justify-content:center;}"
             ".icon-button button{width:36px !important;min-width:36px !important;max-width:36px !important;height:36px !important;padding:0 !important;}"
-            ".face-crops-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%;}"
-            ".face-crop-item{display:flex;flex-direction:column;align-items:center;justify-content:center;aspect-ratio:1.2/1;border:1px solid #ddd;border-radius:8px;padding:8px;background:#f5f5f5;}"
-            ".face-crop-item img{width:100%;height:100%;object-fit:contain;border-radius:4px;}"
-            ".face-crop-caption{font-size:12px;text-align:center;margin-top:8px;color:#666;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
+            ".face-crops-grid{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;}"
+            ".face-crop-item{display:flex;flex-direction:column;max-width:100%;border:1px solid var(--border-color-primary);border-radius:8px;padding:8px;background:var(--background-fill-secondary);}"
+            ".face-crop-item img{display:block;width:auto;height:auto;max-width:100%;border-radius:4px;}"
+            ".face-crop-caption{font-size:12px;margin-top:8px;color:var(--body-text-color-subdued);max-width:100%;overflow-wrap:anywhere;}"
         )
     ) as demo:
         gr.Markdown("# Hailo AI Services Portal")
@@ -605,7 +606,7 @@ def build_gradio_interface() -> gr.Blocks:
                                     html_items.append(
                                         f'<div class="face-crop-item">'
                                         f'  <img src="{crop_uri}" alt="face crop" />'
-                                        f'  <div class="face-crop-caption">{caption}</div>'
+                                        f'  <div class="face-crop-caption">{html.escape(caption)}</div>'
                                         f'</div>'
                                     )
                             
