@@ -36,6 +36,27 @@ After updating your Raspberry Pi with the latest Raspberry Pi software and firmw
 
 **Note:** The AI HAT+ 2 originally used the `hailo-h10-all` package from the Raspberry Pi apt repository. For HailoRT 5.5.0, use the generic `hailort` package family installed directly from Hailo's dev-public server; the Pi apt repo may offer older versions.
 
+**On Raspberry PI 5 ensure to get all kernel headers & sources, here's a clean method working with HailoRT 5.5.0 too and probably all versions.
+First update your rpi sub-system.
+```bash
+$ sudo apt update
+$ sudo apt full-upgrade
+$ sudo apt install rpi-update
+$ sudo reboot
+```
+Install rpi sources :
+```bash
+$ sudo apt install git bc bison flex libssl-dev make libncurses5-dev
+$ sudo wget https://raw.githubusercontent.com/jgartrel/rpi-source/master/rpi-source -O /usr/bin/rpi-source
+$ sudo chmod +x /usr/bin/rpi-source
+$ rpi-source --tag-update
+```
+
+```bash
+$ rpi-source --default-config
+$ reboot
+```
+
 ### Option A: Install 5.1.1 from Raspberry Pi apt repository (simplest, but older)
 
 ```bash
