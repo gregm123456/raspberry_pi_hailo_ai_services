@@ -39,7 +39,7 @@ After updating your Raspberry Pi with the latest Raspberry Pi software and firmw
 **On Raspberry PI 5 ensure to get all kernel headers & sources, here's a clean method working with HailoRT 5.5.0 too and probably all versions.**
 Credits to https://thepihut.com/blogs/raspberry-pi-tutorials/how-to-update-your-raspberry-pi-kernel-and-install-kernel-headers.
 
-First update your rpi sub-system.
+First update your rpi sub-system :
 ```bash
 $ sudo apt update
 $ sudo apt full-upgrade
