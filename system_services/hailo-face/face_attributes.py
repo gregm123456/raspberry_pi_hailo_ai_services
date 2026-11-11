@@ -16,6 +16,8 @@ SCRFD_HEIGHT = 384
 SCRFD_WIDTH = 640
 MIVOLO_SIZE = 224
 SCRFD_STRIDES = (8, 16, 32)
+# Per-side expansion of the returned face crop, as a percent of box width/height
+CROP_PADDING_PERCENT = 15
 
 
 def _decode_tensor(payload: dict[str, Any]) -> np.ndarray:
@@ -254,6 +256,16 @@ def _crop_data_uri(crop: np.ndarray) -> str:
     return f"data:image/jpeg;base64,{encoded}"
 
 
+def _padded_face_crop(image: np.ndarray, bbox: list[int]) -> np.ndarray:
+    x, y, width, height = bbox
+    pad_x = (width * CROP_PADDING_PERCENT + 99) // 100
+    pad_y = (height * CROP_PADDING_PERCENT + 99) // 100
+    x1, y1 = max(0, x - pad_x), max(0, y - pad_y)
+    x2 = min(image.shape[1], x + width + pad_x)
+    y2 = min(image.shape[0], y + height + pad_y)
+    return image[y1:y2, x1:x2]
+
+
 class FaceAttributePipeline:
     def __init__(
         self,
@@ -306,7 +318,7 @@ class FaceAttributePipeline:
             )
 
             for face in faces:
-                tensor, crop = prepare_mivolo_face_input(image, face["bbox"])
+                tensor, _ = prepare_mivolo_face_input(image, face["bbox"])
                 response = await client.infer(
                     str(self.mivolo_hef),
                     {"input": _encode_tensor(tensor)},
@@ -314,7 +326,7 @@ class FaceAttributePipeline:
                     model_params={"input_format": "FLOAT32", "output_format": "FLOAT32"},
                 )
                 face.update(decode_mivolo_output(response["result"]["outputs"]))
-                face["crop"] = _crop_data_uri(crop)
+                face["crop"] = _crop_data_uri(_padded_face_crop(image, face["bbox"]))
             return {
                 "model": "scrfd_2.5g_384_640+mivolo_d1",
                 "count": len(faces),

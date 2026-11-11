@@ -83,7 +83,10 @@ the Device Manager.
    source image.
 3. For each detected face, create a 224x224x6 MiVOLO input from the face crop
    and a zero-filled person crop (MiVOLO face-only mode).
-4. Return MiVOLO's age output and softmaxed gender scores with the face crop.
+4. Return MiVOLO's age output and softmaxed gender scores with a source-image
+   crop expanded by 15% of the box width and height on each side. Round padding
+   up to whole pixels and clip it to image borders; the reported detection box
+   and MiVOLO input remain unchanged.
 
 Age and gender are model estimates, not verified attributes. This endpoint
 does not identify a person.

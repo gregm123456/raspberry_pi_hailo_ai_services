@@ -12,6 +12,7 @@ from hailo_face_service import create_app
 from face_attributes import (
     FaceAttributePipeline,
     _encode_tensor,
+    _padded_face_crop,
     decode_mivolo_output,
     postprocess_scrfd,
     prepare_scrfd_input,
@@ -96,6 +97,19 @@ class FaceAttributeTests(unittest.TestCase):
         self.assertEqual(crop.shape, (10, 20, 3))
         self.assertGreater(float(tensor[..., :3].sum()), 0)
 
+    def test_padded_crop_rounds_up_and_clips_at_all_image_edges(self) -> None:
+        image = np.arange(30 * 40 * 3, dtype=np.uint16).reshape(30, 40, 3)
+        cases = (
+            ([10, 5, 20, 10], image[3:17, 7:33]),
+            ([10, 5, 11, 19], image[2:27, 8:23]),
+            ([0, 0, 11, 19], image[0:22, 0:13]),
+            ([29, 11, 11, 19], image[8:30, 27:40]),
+            ([20, 15, 1, 1], image[14:17, 19:22]),
+        )
+        for bbox, expected in cases:
+            with self.subTest(bbox=bbox):
+                np.testing.assert_array_equal(_padded_face_crop(image, bbox), expected)
+
     def test_decodes_mivolo_logits(self) -> None:
         result = decode_mivolo_output(
             {"output": _encode_tensor(np.asarray([[[2.0, 0.0, 44.6]]], dtype=np.float32))}
@@ -105,20 +119,38 @@ class FaceAttributeTests(unittest.TestCase):
         self.assertAlmostEqual(result["gender_scores"]["male"], 0.8808, places=3)
 
     def test_analyzes_image_using_both_models(self) -> None:
+        mivolo_inputs = []
+
+        class CaptureClient(FakeDeviceClient):
+            async def infer(self, model_path, input_data, model_type, model_params):
+                if model_path.endswith("mivolo.hef"):
+                    mivolo_inputs.append(input_data["input"])
+                return await super().infer(model_path, input_data, model_type, model_params)
+
+        pixels = np.zeros((384, 640, 3), dtype=np.uint8)
+        pixels[16:32, 8:24] = [100, 150, 200]
+        image = Image.fromarray(pixels)
         with tempfile.TemporaryDirectory() as directory:
             scrfd = Path(directory) / "scrfd.hef"
             mivolo = Path(directory) / "mivolo.hef"
             scrfd.touch()
             mivolo.touch()
             pipeline = FaceAttributePipeline(
-                str(scrfd), str(mivolo), client_factory=FakeDeviceClient
+                str(scrfd), str(mivolo), client_factory=CaptureClient
             )
-            result = pipeline.analyze(Image.new("RGB", (640, 384), color="white"))
+            result = pipeline.analyze(image)
 
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["faces"][0]["gender"], "male")
         self.assertEqual(result["faces"][0]["age_years"], 44.6)
-        self.assertTrue(result["faces"][0]["crop"].startswith("data:image/jpeg;base64,"))
+        face = result["faces"][0]
+        self.assertEqual(face["bbox"], [8, 16, 16, 16])
+        prefix, encoded = face["crop"].split(",", 1)
+        self.assertEqual(prefix, "data:image/jpeg;base64")
+        with Image.open(io.BytesIO(base64.b64decode(encoded))) as crop:
+            self.assertEqual(crop.size, (22, 22))
+        expected_tensor, _ = prepare_mivolo_face_input(pixels, face["bbox"])
+        self.assertEqual(mivolo_inputs[0], _encode_tensor(expected_tensor))
 
     def test_attributes_route_returns_model_result(self) -> None:
         class FakeConfig:

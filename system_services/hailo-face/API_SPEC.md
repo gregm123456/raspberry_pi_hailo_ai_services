@@ -122,7 +122,10 @@ face-only mode. This endpoint does not identify people.
 ```
 
 `age_years` and `gender_scores` are model estimates, not verified attributes.
-`crop` is a JPEG data URI for the detected face.
+`crop` is a JPEG data URI from the source image, expanded by 15% of the
+detected box width and height on each side. Padding is rounded up to whole
+pixels and clipped at image borders. `bbox` remains the original detection
+box, and MiVOLO uses the original, unexpanded face crop.
 
 **Status Codes:**
 - `200 OK` - Inference completed; `faces` can be empty
