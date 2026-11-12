@@ -106,6 +106,7 @@ Response (200 OK):
   "total_lru_evictions": 0,
   "request_id": "..."
 }
+```
 
 ### device_status
 Get detailed device status (firmware, temperature, loaded networks).
@@ -147,7 +148,6 @@ Response (200 OK):
   "total_lru_evictions": 0,
   "request_id": "..."
 }
-```
 ```
 
 ### load_model
